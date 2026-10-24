@@ -19,6 +19,10 @@ class SyncToken:
     epoch: str | None = None
     gen: int = 0
     store_token: str = ""
+    # Only while answering "continue" (pages of one Sync): the generation the Sync started at, and
+    # where re-offering not-yet-downloaded articles continues (below this item ID).
+    session: int | None = None
+    resend_below: int | None = None
 
     @classmethod
     def parse(cls, value: str | None) -> "SyncToken":
@@ -39,6 +43,8 @@ class SyncToken:
                 epoch=data.get("epoch") or None,
                 gen=int(data.get("gen") or 0),
                 store_token=data.get("store") or "",
+                session=data.get("session"),
+                resend_below=data.get("resend_below"),
             )
         # A calibre-web token: keep the store part it carried.
         inner = data.get("data") if isinstance(data.get("data"), dict) else {}
@@ -46,4 +52,8 @@ class SyncToken:
 
     def serialize(self) -> str:
         payload = {"neneko": 1, "epoch": self.epoch, "gen": self.gen, "store": self.store_token}
+        if self.session is not None:
+            payload["session"] = self.session
+        if self.resend_below is not None:
+            payload["resend_below"] = self.resend_below
         return base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode()

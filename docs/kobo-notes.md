@@ -18,8 +18,9 @@ With calibre-web as the stand-in store (firmware 4.38.23697 and 4.38.23828):
 ## Observed with Neneko
 
 - The Kobo downloads only 5 new books by itself after a sync; the others are listed
-  with a download icon and download when tapped. `NENEKO_NEW_PER_SYNC_PAGE` hands new
-  articles out in smaller pages to test whether the Kobo downloads each page.
+  with a download icon and download when tapped. Repeated Syncs don't change that, because
+  the books are already known. 0.2.1-dev.1 tests two remedies together: articles in pages of
+  5 (`x-kobo-sync: continue`) and offering never-downloaded articles again on later Syncs.
 - kepubify's dummy title page ("intentionally left blank") is disabled with
   `--no-add-dummy-titlepage`.
 

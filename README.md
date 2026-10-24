@@ -91,9 +91,10 @@ You need Docker (with Compose), Nextcloud with the News app, and a Kobo on the s
   Nextcloud News Android app). It stays on the Kobo until you finish it.
 - Finished articles leave the Kobo after `NENEKO_FINISHED_GRACE_HOURS`, so you can still
   "Mark as unread" for a while.
-- The Kobo itself downloads only 5 new articles after a sync; the others show a download icon
-  and download instantly when you tap them (they are already built). `NENEKO_NEW_PER_SYNC_PAGE`
-  is an experiment to get around this, see below.
+- The Kobo itself downloads only a few new books after a sync; the others show a download
+  icon and download instantly when you tap them (they are already built). To get them all,
+  Neneko hands articles out in small pages (`NENEKO_NEW_PER_SYNC_PAGE`) and offers articles
+  the Kobo hasn't downloaded yet again at the next Sync. *Experimental in 0.2.1-dev.1.*
 - Articles marked read elsewhere (web, phone app) are removed at the next sync.
 - Deleting an article on the Kobo marks it read in Nextcloud (or only forgets it, see
   `NENEKO_DELETE_ACTION`) and it isn't sent again.
@@ -123,7 +124,7 @@ All settings are environment variables.
 | `NENEKO_KOBO_TOKEN` / `_FILE` | (required) | Secret in the Kobo's `api_endpoint`; at least 16 of `A-Z a-z 0-9 - _` |
 | `NENEKO_NC_FOLDERS` | all | Comma-separated News folder names to sync |
 | `NENEKO_MAX_ITEMS` | `50` | Most articles on the Kobo at once |
-| `NENEKO_NEW_PER_SYNC_PAGE` | `100` | New articles per sync response; with a small value (e.g. `5`) the Kobo asks again until all are delivered. Experimental: may make the Kobo download all of them |
+| `NENEKO_NEW_PER_SYNC_PAGE` | `5` | Articles per sync response; the Kobo keeps asking until all are delivered |
 | `NENEKO_MARK_READ_ON` | `opened` | When an article is marked read in Nextcloud: `opened` (as soon as you open it on the Kobo), `finished`, or `delivered` (as soon as it reaches the Kobo) |
 | `NENEKO_FINISHED_GRACE_HOURS` | `24` | How long finished articles stay on the Kobo |
 | `NENEKO_DELETE_ACTION` | `mark_read` | Deleting on the Kobo: `mark_read` or `forget` |
@@ -144,8 +145,8 @@ All settings are environment variables.
 | `NENEKO_RECOVERY_DAYS` | `14` | After the database was lost, remove articles read within this many days from the Kobo |
 | `NENEKO_LOG_LEVEL` | `INFO` | `DEBUG` for more detail |
 
-The dithering is a pixel-exact port of Calibre's "Upload dithered covers" option (ImageMagick's
-`o8x8` ordered dither). It suits covers, which the Kobo shows at their exact size; article
+The dithering is a port of Calibre's "Upload dithered covers" option (ImageMagick's `o8x8`
+ordered dither), verified pixel-identical against Calibre's own output (`tests/test_images.py`). It suits covers, which the Kobo shows at their exact size; article
 images get rescaled by the reader, which can make a dither pattern look grainy, so it is off by
 default for those.
 
@@ -171,6 +172,18 @@ are removed.
 - **Switching from calibre-web**: books that calibre-web synced stay on the Kobo; remove
   them there if you no longer want them.
 - `NENEKO_LOG_LEVEL=DEBUG` logs every step. The Kobo token is masked in the logs.
+
+## Versions
+
+The version lives in one place, `src/neneko/__init__.py`. Image tags on `ghcr.io/keunes/neneko`:
+
+- `latest`: the newest stable release;
+- `0.2.1`, `0.2.1-dev.1`, …: one tag per release, never changed afterwards;
+- `main`: the current development state.
+
+To release, change `__version__` and push to `main`. CI then tags the image with the new version
+and creates a GitHub release; versions with a suffix such as `-dev.1` become pre-releases and
+don't move `latest`.
 
 ## Development
 

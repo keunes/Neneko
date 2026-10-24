@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # What ends up on the Kobo
     max_items: int = Field(50, ge=1, le=500)
-    new_per_sync_page: int = Field(100, ge=1, le=100)
+    new_per_sync_page: int = Field(5, ge=1, le=100)
     collections: Annotated[list[CollectionKind], NoDecode] = ["all", "folder"]
     collection_all_name: str = "Neneko"
     collection_folder_template: str = "Neneko · {folder}"

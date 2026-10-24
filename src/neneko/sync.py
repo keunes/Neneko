@@ -222,6 +222,29 @@ class SyncEngine:
                 self.builder.purge(row["item_id"])
         state.ledger_delete_older_than(now - FORGET_REMOVED_AFTER)
 
+        # The Kobo downloads only a few books by itself per sync. Offer articles it has but never
+        # downloaded again, a page at a time. The token tracks one Sync's pages: where it started
+        # (articles delivered since can't have been downloaded yet) and how far the re-offer got.
+        continuing = token.session is not None and token.epoch == epoch
+        session_start = token.session if continuing else gen
+        resend_below = token.resend_below if continuing else None
+        budget = max(settings.new_per_sync_page - sum("NewEntitlement" in r for r in results), 0)
+        undownloaded = [
+            row for row in state.ledger_active()
+            if row["item_id"] not in sent and not row["downloaded_at"] and row["delivered_gen"] <= acked
+            and row["delivered_gen"] < session_start and row["kobo_status"] == "ReadyToRead"
+            and (resend_below is None or row["item_id"] < resend_below)
+        ]
+        reoffered = undownloaded[:budget]
+        for row in reoffered:
+            results.append(self._book("NewEntitlement", row))
+            sent.add(row["item_id"])
+        if len(undownloaded) > len(reoffered):
+            response.more = True
+        if response.more:
+            response.token.session = session_start
+            response.token.resend_below = reoffered[-1]["item_id"] if reoffered else resend_below
+
         if recovering and window is not None:
             results += await self._recovery_sweep(feeds, folder_names)
 
@@ -234,8 +257,8 @@ class SyncEngine:
         state.kv_set("last_sync_at", str(now))
         if window is not None:
             state.kv_set("last_sync_error", "")
-        log.info("sync: %d new, %d changed/removed, %d results in total%s",
-                 len([r for r in results if "NewEntitlement" in r]),
+        log.info("sync: %d new, %d re-offered (not downloaded yet), %d changed/removed, %d results in total%s",
+                 sum("NewEntitlement" in r for r in results) - len(reoffered), len(reoffered),
                  len([r for r in results if "ChangedEntitlement" in r]), len(results),
                  " (more to come)" if response.more else "")
         return response

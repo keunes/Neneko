@@ -11,7 +11,7 @@ import threading
 import time
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS kv (
@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS ledger (
     statistics_json TEXT,
     state_at REAL,
     nc_read_by_neneko INTEGER NOT NULL DEFAULT 0,
-    dismissed INTEGER NOT NULL DEFAULT 0
+    dismissed INTEGER NOT NULL DEFAULT 0,
+    downloaded_at REAL
 );
 CREATE TABLE IF NOT EXISTS outbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,7 +77,10 @@ class State:
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA synchronous=NORMAL")
         with self._lock:
+            version = self._db.execute("PRAGMA user_version").fetchone()[0]
             self._db.executescript(SCHEMA)
+            if 0 < version < 2:
+                self._db.execute("ALTER TABLE ledger ADD COLUMN downloaded_at REAL")
             self._db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     def close(self) -> None:
@@ -158,7 +162,8 @@ class State:
                 delivered_gen = excluded.delivered_gen, changed_gen = excluded.changed_gen,
                 removed_at = NULL, removed_gen = 0, kobo_status = 'ReadyToRead',
                 status_at = NULL, finished_at = NULL, bookmark_json = NULL,
-                statistics_json = NULL, state_at = NULL, nc_read_by_neneko = 0, dismissed = 0
+                statistics_json = NULL, state_at = NULL, nc_read_by_neneko = 0, dismissed = 0,
+                downloaded_at = NULL
             """,
             {
                 "item_id": item["id"], "uuid": uuid, "feed_id": item.get("feedId"),
@@ -176,6 +181,10 @@ class State:
             (folder_id, feed_title, item.get("title"), item.get("contentHash"),
              json.dumps(item), size, gen, item["id"]),
         )
+
+    def ledger_set_downloaded(self, item_id: int) -> None:
+        self._exec("UPDATE ledger SET downloaded_at = ? WHERE item_id = ? AND downloaded_at IS NULL",
+                   (time.time(), item_id))
 
     def ledger_set_size(self, item_id: int, size: int) -> None:
         self._exec("UPDATE ledger SET size = ? WHERE item_id = ?", (size, item_id))

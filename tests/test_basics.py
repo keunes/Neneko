@@ -72,3 +72,37 @@ def test_settings_reject_weak_token(monkeypatch):
         monkeypatch.setenv(key, value)
     with pytest.raises(ValueError):
         Settings()
+
+
+def test_sync_token_keeps_the_page_cursor():
+    token = SyncToken(epoch="e", gen=3, session=2, resend_below=1104)
+    assert SyncToken.parse(token.serialize()) == token
+    assert "session" not in json.loads(base64.b64decode(SyncToken(epoch="e", gen=3).serialize()))
+
+
+def test_old_database_is_migrated(tmp_path):
+    import sqlite3
+
+    from neneko.state import State
+
+    path = tmp_path / "old.sqlite"
+    db = sqlite3.connect(path)
+    db.executescript("CREATE TABLE ledger (item_id INTEGER PRIMARY KEY, uuid TEXT NOT NULL UNIQUE, "
+                     "removed_at REAL, kobo_status TEXT NOT NULL DEFAULT 'ReadyToRead'); PRAGMA user_version=1;")
+    db.execute("INSERT INTO ledger (item_id, uuid) VALUES (1, 'u1')")
+    db.commit()
+    db.close()
+    state = State(path)
+    state.ledger_set_downloaded(1)
+    assert state.ledger_get(1)["downloaded_at"] is not None
+
+
+def test_version_has_a_single_source():
+    import re
+    from pathlib import Path
+
+    import neneko
+
+    pyproject = (Path(__file__).parents[1] / "pyproject.toml").read_text()
+    assert 'dynamic = ["version"]' in pyproject and not re.search(r'^version\s*=\s*"', pyproject, re.M)
+    assert re.fullmatch(r"\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?", neneko.__version__)

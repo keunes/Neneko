@@ -16,9 +16,10 @@ RUN apt-get update \
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
+ENV PIP_ROOT_USER_ACTION=ignore
 RUN pip install --no-cache-dir . && rm -rf /app/src /app/build
 COPY --from=kepubify /out/kepubify /usr/local/bin/kepubify
-RUN useradd --system --uid 1000 --home-dir /data neneko \
+RUN useradd --uid 1000 --no-create-home --home-dir /data neneko \
  && mkdir -p /data && chown neneko:neneko /data
 USER neneko
 ENV NENEKO_DATA_DIR=/data PYTHONUNBUFFERED=1

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neneko"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Sync Nextcloud News articles to a Kobo e-reader by emulating the Kobo store sync API"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -32,6 +32,9 @@ neneko = "neneko.main:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "neneko.__version__"}
 
 [tool.setuptools.package-data]
 "neneko.kobo" = ["*.json"]

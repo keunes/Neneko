@@ -181,6 +181,7 @@ def create_router(ctx: KoboContext) -> APIRouter:
         except Exception as exc:  # noqa: BLE001 - logged by the builder
             log.error("download of item %s failed: %r", item_id, exc)
             raise HTTPException(status_code=500) from exc
+        state.ledger_set_downloaded(item_id)
         log.info("download of item %s: %s, ready after %.1f s", item_id,
                  "from cache" if was_built else "built on request", time.monotonic() - started)
         name = f"{item_id}.kepub.epub" if builder.use_kepub else f"{item_id}.epub"

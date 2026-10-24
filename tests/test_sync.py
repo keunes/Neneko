@@ -278,7 +278,7 @@ def test_filtered_items_are_skipped(make_kobo, news):
 def test_more_than_one_page(make_kobo, news):
     for _ in range(130):
         news.add_item(51)
-    kobo = make_kobo(max_items=150)
+    kobo = make_kobo(max_items=150, new_per_sync_page=100)
     results = kobo.sync()
     assert kobo.pages == 2
     assert len(ids_of(results, "NewEntitlement")) == 130
@@ -307,3 +307,40 @@ def test_recovery_sweep_is_bounded(make_kobo, news):
     removed = ids_of(fresh.sync(), "ChangedEntitlement", removed=True)
     assert len(removed) == 200
     assert removed[0] == uuid_of(fresh, max(news.items))  # newest first
+
+
+def test_undownloaded_articles_are_offered_again_page_by_page(make_kobo, news):
+    items = [news.add_item(51) for _ in range(12)]
+    kobo = make_kobo()  # 5 per page
+    first = kobo.sync(download=0)  # the Kobo lists them but downloads none
+    assert len(ids_of(first, "NewEntitlement")) == 12 and kobo.pages == 3
+
+    kobo.pages = 0
+    again = kobo.sync(download=5)
+    # Next Sync: all 12 offered again, 5 per page, newest first, each once.
+    assert ids_of(again, "NewEntitlement") == [uuid_of(kobo, i["id"]) for i in reversed(items)]
+    assert kobo.pages == 3
+
+    downloaded = {uuid_of(kobo, i["id"]) for i in reversed(items[-5:])}
+    third = kobo.sync(download=0)
+    offered = ids_of(third, "NewEntitlement")
+    assert len(offered) == 7 and not downloaded & set(offered)
+
+
+def test_new_articles_in_this_sync_are_not_offered_twice(make_kobo, news):
+    old = [news.add_item(51) for _ in range(3)]
+    kobo = make_kobo()
+    kobo.sync(download=0)
+    fresh = [news.add_item(51) for _ in range(6)]
+    results = kobo.sync(download=0)
+    offered = ids_of(results, "NewEntitlement")
+    assert len(offered) == len(set(offered)) == 9  # 6 new + 3 re-offered, nothing twice
+    assert set(offered) == {uuid_of(kobo, i["id"]) for i in old + fresh}
+
+
+def test_opened_articles_are_not_offered_again(make_kobo, news):
+    item = news.add_item(51)
+    kobo = make_kobo()
+    kobo.sync(download=0)
+    kobo.put_state(uuid_of(kobo, item["id"]), "Reading")
+    assert ids_of(kobo.sync(), "NewEntitlement") == []

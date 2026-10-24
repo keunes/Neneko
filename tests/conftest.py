@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from neneko.config import Settings
+from neneko.ids import item_id_from_uuid
 from neneko.main import create_app
 
 from .fake_nextcloud import FakeNews
@@ -69,7 +70,9 @@ class Kobo:
     def url(self, path: str) -> str:
         return f"/kobo/{TOKEN}{path}"
 
-    def sync(self, *, keep_token: bool = True) -> list[dict]:
+    def sync(self, *, keep_token: bool = True, download: int | None = None) -> list[dict]:
+        """One press of Sync: follows "continue" pages. Afterwards the Kobo downloads `download`
+        of the offered books (all by default), recorded as a download request would."""
         results = []
         while True:
             headers = {"x-kobo-synctoken": self.token} if self.token else {}
@@ -80,7 +83,14 @@ class Kobo:
             if keep_token:
                 self.token = response.headers["x-kobo-synctoken"]
             if response.headers.get("x-kobo-sync") != "continue":
-                return results
+                break
+        if keep_token:
+            offered = [r["NewEntitlement"]["BookEntitlement"]["Id"] for r in results if "NewEntitlement" in r]
+            for book_id in offered if download is None else offered[:download]:
+                item_id = item_id_from_uuid(self.ctx.prefix, book_id)
+                if item_id is not None:
+                    self.ctx.state.ledger_set_downloaded(item_id)
+        return results
 
     def put_state(self, book_uuid: str, status: str, **extra) -> httpx.Response:
         body = {"ReadingStates": [{"StatusInfo": {"Status": status}, "CurrentBookmark": extra.get("bookmark"),
