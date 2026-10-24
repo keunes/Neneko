@@ -1,0 +1,33 @@
+# Add this service to your existing docker-compose.yml.
+services:
+  neneko:
+    image: ghcr.io/keunes/neneko:latest     # or build it yourself: build: .
+    restart: unless-stopped
+    ports:
+      - "8089:8089"               # the Kobo connects here over your LAN
+    volumes:
+      - neneko-data:/data         # database and built articles
+    environment:
+      NENEKO_NC_URL: https://cloud.example.org
+      NENEKO_NC_USER: your-nextcloud-login
+      NENEKO_NC_APP_PASSWORD_FILE: /run/secrets/neneko_nc_app_password
+      NENEKO_KOBO_TOKEN_FILE: /run/secrets/neneko_kobo_token
+      NENEKO_PUBLIC_URL: http://neneko-host:8089    # how the Kobo reaches this container
+      # NENEKO_NC_FOLDERS: "Tech,Long reads"        # default: all unread items
+      # NENEKO_MAX_ITEMS: "50"
+      # NENEKO_MARK_READ_ON: opened                 # opened | finished | delivered
+      # NENEKO_COLLECTIONS: "all,folder"            # add ",feed" for one collection per feed
+      # NENEKO_COLLECTION_ALL_NAME: "Neneko"
+      # NENEKO_FULLTEXT_NEVER_EXTRACT: "Some Feed With Full Text"
+    secrets:
+      - neneko_nc_app_password
+      - neneko_kobo_token
+
+volumes:
+  neneko-data:
+
+secrets:
+  neneko_nc_app_password:
+    file: ./secrets/neneko_nc_app_password
+  neneko_kobo_token:
+    file: ./secrets/neneko_kobo_token

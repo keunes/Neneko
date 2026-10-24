@@ -1,0 +1,49 @@
+"""The sync token: state the Kobo stores for us and sends back on every sync.
+
+Neneko keeps three things in it: the database epoch, the generation of the last sync
+response the Kobo received, and the Kobo store's own token (for the store proxy).
+"""
+
+import base64
+import json
+import logging
+from dataclasses import dataclass
+
+log = logging.getLogger(__name__)
+
+HEADER = "x-kobo-synctoken"
+
+
+@dataclass
+class SyncToken:
+    epoch: str | None = None
+    gen: int = 0
+    store_token: str = ""
+
+    @classmethod
+    def parse(cls, value: str | None) -> "SyncToken":
+        if not value:
+            return cls()
+        if "." in value:
+            # First sync after switching from the real store: a store token (two base64 blobs).
+            return cls(store_token=value)
+        try:
+            data = json.loads(base64.b64decode(value + "=" * (-len(value) % 4)))
+        except (ValueError, TypeError):
+            log.info("unreadable sync token, starting fresh")
+            return cls()
+        if not isinstance(data, dict):
+            return cls()
+        if "neneko" in data:
+            return cls(
+                epoch=data.get("epoch") or None,
+                gen=int(data.get("gen") or 0),
+                store_token=data.get("store") or "",
+            )
+        # A calibre-web token: keep the store part it carried.
+        inner = data.get("data") if isinstance(data.get("data"), dict) else {}
+        return cls(store_token=inner.get("raw_kobo_store_token") or "")
+
+    def serialize(self) -> str:
+        payload = {"neneko": 1, "epoch": self.epoch, "gen": self.gen, "store": self.store_token}
+        return base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode()
