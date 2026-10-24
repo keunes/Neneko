@@ -8,6 +8,7 @@ services:
     volumes:
       - neneko-data:/data         # database and built articles
     environment:
+      TZ: Europe/Berlin           # your time zone, for the times in the log
       NENEKO_NC_URL: https://cloud.example.org
       NENEKO_NC_USER: your-nextcloud-login
       NENEKO_NC_APP_PASSWORD_FILE: /run/secrets/neneko_nc_app_password

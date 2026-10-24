@@ -92,9 +92,9 @@ You need Docker (with Compose), Nextcloud with the News app, and a Kobo on the s
 - Finished articles leave the Kobo after `NENEKO_FINISHED_GRACE_HOURS`, so you can still
   "Mark as unread" for a while.
 - The Kobo itself downloads only a few new books after a sync; the others show a download
-  icon and download instantly when you tap them (they are already built). To get them all,
-  Neneko hands articles out in small pages (`NENEKO_NEW_PER_SYNC_PAGE`) and offers articles
-  the Kobo hasn't downloaded yet again at the next Sync. *Experimental in 0.2.1-dev.1.*
+  icon and download instantly when you tap them (they are already built). Neneko now sends new
+  articles the way calibre-web does (with a reading state and the real file size) in case that
+  changes it; see [`docs/kobo-notes.md`](docs/kobo-notes.md) for what was tried.
 - Articles marked read elsewhere (web, phone app) are removed at the next sync.
 - Deleting an article on the Kobo marks it read in Nextcloud (or only forgets it, see
   `NENEKO_DELETE_ACTION`) and it isn't sent again.
@@ -124,7 +124,6 @@ All settings are environment variables.
 | `NENEKO_KOBO_TOKEN` / `_FILE` | (required) | Secret in the Kobo's `api_endpoint`; at least 16 of `A-Z a-z 0-9 - _` |
 | `NENEKO_NC_FOLDERS` | all | Comma-separated News folder names to sync |
 | `NENEKO_MAX_ITEMS` | `50` | Most articles on the Kobo at once |
-| `NENEKO_NEW_PER_SYNC_PAGE` | `5` | Articles per sync response; the Kobo keeps asking until all are delivered |
 | `NENEKO_MARK_READ_ON` | `opened` | When an article is marked read in Nextcloud: `opened` (as soon as you open it on the Kobo), `finished`, or `delivered` (as soon as it reaches the Kobo) |
 | `NENEKO_FINISHED_GRACE_HOURS` | `24` | How long finished articles stay on the Kobo |
 | `NENEKO_DELETE_ACTION` | `mark_read` | Deleting on the Kobo: `mark_read` or `forget` |
@@ -134,6 +133,7 @@ All settings are environment variables.
 | `NENEKO_COLLECTION_FEED_TEMPLATE` | `{feed}` | Per-feed collection name (`{folder}` also available) |
 | `NENEKO_FULLTEXT_NEVER_EXTRACT` | | Comma-separated feed titles or IDs whose feed text is used as-is |
 | `NENEKO_COOKIES_FILE` | | Netscape `cookies.txt` for fetching pages |
+| `NENEKO_USER_AGENT` | a desktop Chrome | User-Agent for fetching pages and images |
 | `NENEKO_LANGUAGE` | `en` | Book language when the page doesn't declare one |
 | `NENEKO_IMAGE_GRAYSCALE` | `true` | Convert article images to greyscale |
 | `NENEKO_IMAGE_MAX_WIDTH` | `1264` | Downscale wider images to this many pixels |
@@ -144,6 +144,7 @@ All settings are environment variables.
 | `NENEKO_BUILD_WORKERS` | `4` | Articles built in parallel |
 | `NENEKO_RECOVERY_DAYS` | `14` | After the database was lost, remove articles read within this many days from the Kobo |
 | `NENEKO_LOG_LEVEL` | `INFO` | `DEBUG` for more detail |
+| `TZ` | `UTC` | Time zone for the log, e.g. `Europe/Berlin` (the status page uses your browser's) |
 
 The dithering is a port of Calibre's "Upload dithered covers" option (ImageMagick's `o8x8`
 ordered dither), verified pixel-identical against Calibre's own output (`tests/test_images.py`). It suits covers, which the Kobo shows at their exact size; article
@@ -168,7 +169,9 @@ are removed.
 - **Sync fails on the Kobo**: the Kobo must reach `NENEKO_PUBLIC_URL`. Open
   `NENEKO_PUBLIC_URL/healthz` from another device on the same Wi-Fi.
 - **An article only has the teaser text**: the site couldn't be fetched or extracted (paywall,
-  JavaScript-only page); the article ends with a note and a link to the original.
+  JavaScript-only page); the article ends with a note and a link to the original. A log line
+  "refuses automated requests" (HTTP 403) means the site blocks anything that isn't a real
+  browser; cookies (`NENEKO_COOKIES_FILE`) sometimes help.
 - **Switching from calibre-web**: books that calibre-web synced stay on the Kobo; remove
   them there if you no longer want them.
 - `NENEKO_LOG_LEVEL=DEBUG` logs every step. The Kobo token is masked in the logs.

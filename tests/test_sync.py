@@ -84,15 +84,6 @@ def test_switching_collection_settings_renames_and_deletes(make_kobo, news):
     assert new.sync() == []
 
 
-def test_new_articles_in_small_pages(make_kobo, news):
-    for _ in range(30):
-        news.add_item(51)
-    kobo = make_kobo(new_per_sync_page=5)
-    results = kobo.sync()
-    assert kobo.pages == 6
-    assert len(ids_of(results, "NewEntitlement")) == 30
-
-
 def test_folder_filter(make_kobo, news):
     tech = news.add_item(51)
     news.add_item(35)
@@ -278,7 +269,7 @@ def test_filtered_items_are_skipped(make_kobo, news):
 def test_more_than_one_page(make_kobo, news):
     for _ in range(130):
         news.add_item(51)
-    kobo = make_kobo(max_items=150, new_per_sync_page=100)
+    kobo = make_kobo(max_items=150)
     results = kobo.sync()
     assert kobo.pages == 2
     assert len(ids_of(results, "NewEntitlement")) == 130
@@ -309,38 +300,32 @@ def test_recovery_sweep_is_bounded(make_kobo, news):
     assert removed[0] == uuid_of(fresh, max(news.items))  # newest first
 
 
-def test_undownloaded_articles_are_offered_again_page_by_page(make_kobo, news):
-    items = [news.add_item(51) for _ in range(12)]
-    kobo = make_kobo()  # 5 per page
-    first = kobo.sync(download=0)  # the Kobo lists them but downloads none
-    assert len(ids_of(first, "NewEntitlement")) == 12 and kobo.pages == 3
-
-    kobo.pages = 0
-    again = kobo.sync(download=5)
-    # Next Sync: all 12 offered again, 5 per page, newest first, each once.
-    assert ids_of(again, "NewEntitlement") == [uuid_of(kobo, i["id"]) for i in reversed(items)]
-    assert kobo.pages == 3
-
-    downloaded = {uuid_of(kobo, i["id"]) for i in reversed(items[-5:])}
-    third = kobo.sync(download=0)
-    offered = ids_of(third, "NewEntitlement")
-    assert len(offered) == 7 and not downloaded & set(offered)
-
-
-def test_new_articles_in_this_sync_are_not_offered_twice(make_kobo, news):
-    old = [news.add_item(51) for _ in range(3)]
+def test_new_books_come_with_a_reading_state(make_kobo, news):
+    news.add_item(51)
     kobo = make_kobo()
-    kobo.sync(download=0)
-    fresh = [news.add_item(51) for _ in range(6)]
-    results = kobo.sync(download=0)
-    offered = ids_of(results, "NewEntitlement")
-    assert len(offered) == len(set(offered)) == 9  # 6 new + 3 re-offered, nothing twice
-    assert set(offered) == {uuid_of(kobo, i["id"]) for i in old + fresh}
+    entry = entitlements(kobo.sync(), "NewEntitlement")[0]
+    state = entry["ReadingState"]
+    assert state["EntitlementId"] == entry["BookEntitlement"]["Id"]
+    assert state["StatusInfo"]["Status"] == "ReadyToRead"
+    assert state["StatusInfo"]["TimesStartedReading"] == 0
+    assert state["Created"] == state["LastModified"] == state["PriorityTimestamp"] \
+        == state["StatusInfo"]["LastModified"] == state["CurrentBookmark"]["LastModified"]
 
 
-def test_opened_articles_are_not_offered_again(make_kobo, news):
-    item = news.add_item(51)
-    kobo = make_kobo()
-    kobo.sync(download=0)
-    kobo.put_state(uuid_of(kobo, item["id"]), "Reading")
-    assert ids_of(kobo.sync(), "NewEntitlement") == []
+def test_sync_reports_the_real_file_size(make_kobo, news, monkeypatch):
+    from neneko.builder.queue import Builder
+
+    def fake_build(self, row):
+        path = self.article_path(row)
+        path.write_bytes(b"x" * (1000 + row["item_id"]))
+        self.state.ledger_set_size(row["item_id"], path.stat().st_size)
+        return path
+
+    monkeypatch.setattr(Builder, "build", fake_build)
+    items = [news.add_item(51) for _ in range(3)]
+    kobo = make_kobo(start_workers=True)
+    results = entitlements(kobo.sync(), "NewEntitlement")
+    sizes = {e["BookEntitlement"]["Id"]: e["BookMetadata"]["DownloadUrls"][0]["Size"] for e in results}
+    assert sizes == {uuid_of(kobo, i["id"]): 1000 + i["id"] for i in items}
+    status = kobo.client.get("/").text
+    assert "Downloaded by the Kobo</th><td>3" in status

@@ -248,7 +248,8 @@ class State:
             "SELECT "
             "SUM(removed_at IS NULL) AS on_kobo, "
             "SUM(removed_at IS NULL AND kobo_status = 'Reading') AS reading, "
-            "SUM(removed_at IS NULL AND kobo_status = 'Finished') AS finished "
+            "SUM(removed_at IS NULL AND kobo_status = 'Finished') AS finished, "
+            "SUM(removed_at IS NULL AND downloaded_at IS NOT NULL) AS downloaded "
             "FROM ledger"
         )
         return {key: row[key] or 0 for key in row}

@@ -119,10 +119,13 @@ def test_download_builds_a_kepub_with_full_text_and_images(make_kobo, sample):
     opf = book.read("EPUB/content.opf").decode()
     assert f"urn:uuid:{item_uuid(kobo.ctx.prefix, 1104)}" in opf
 
-    # The real size is reported from now on.
+    # The sync waited for the build, so it already reported the real size.
+    assert teaser["BookMetadata"]["DownloadUrls"][0]["Size"] == len(response.content)
     uuid = item_uuid(kobo.ctx.prefix, 1104)
     metadata = kobo.client.get(kobo.url(f"/v1/library/{uuid}/metadata")).json()[0]
     assert metadata["DownloadUrls"][0]["Size"] == len(response.content)
+    head = kobo.client.head(url)
+    assert head.status_code == 200 and int(head.headers["content-length"]) == len(response.content)
 
 
 def test_download_without_kepubify_serves_epub(make_kobo, sample):
@@ -157,4 +160,5 @@ def test_status_page(make_kobo, sample):
     kobo.sync()
     page = kobo.client.get("/").text
     assert "Articles on the Kobo" in page
+    assert '<time datetime="' in page and " UTC</time>" in page  # shown in the browser's time zone
     assert TOKEN not in page

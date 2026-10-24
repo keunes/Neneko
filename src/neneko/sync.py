@@ -18,6 +18,8 @@ log = logging.getLogger(__name__)
 
 KOBO_STATUSES = {"ReadyToRead", "Reading", "Finished"}
 FORGET_REMOVED_AFTER = 30 * 86400
+NEW_PER_PAGE = 100  # new articles per sync response; "continue" makes the Kobo ask for the rest
+SYNC_BUILD_WAIT = 10  # seconds a sync waits for new articles to be built
 
 
 @dataclass
@@ -55,10 +57,15 @@ class SyncEngine:
         )
 
     def _book(self, kind: str, row: dict, *, removed: bool = False) -> dict:
-        return {kind: {
+        entry = {
             "BookEntitlement": payloads.entitlement(row, removed=removed),
             "BookMetadata": self.book_metadata(row),
-        }}
+        }
+        if kind == "NewEntitlement":
+            # calibre-web sends every new book with its reading state; the Kobo then has the
+            # timestamps it sorts its download queue by (it asks for PrioritizeRecentReads).
+            entry["ReadingState"] = payloads.reading_state(row)
+        return {kind: entry}
 
     # Nextcloud side
 
@@ -162,9 +169,8 @@ class SyncEngine:
             target = set(chosen) | keep_always | keep_finished
 
             new_ids = [item_id for item_id in chosen if item_id not in active]
-            page = settings.new_per_sync_page
-            response.more = len(new_ids) > page
-            new_ids = new_ids[:page]
+            response.more = len(new_ids) > NEW_PER_PAGE
+            new_ids = new_ids[:NEW_PER_PAGE]
 
             with state.transaction():
                 for item_id in new_ids:
@@ -193,6 +199,10 @@ class SyncEngine:
                 for item_id in active.keys() - target:
                     state.ledger_remove(item_id, gen)
 
+            # Build before answering (they take about a second each, in parallel), so the sync can
+            # report each file's real size, like calibre-web does; slow ones keep an estimate.
+            if to_build:
+                await self.builder.wait([state.ledger_get(item_id) for item_id in to_build], SYNC_BUILD_WAIT)
             for item_id in new_ids:
                 results.append(self._book("NewEntitlement", state.ledger_get(item_id)))
                 sent.add(item_id)
@@ -222,29 +232,6 @@ class SyncEngine:
                 self.builder.purge(row["item_id"])
         state.ledger_delete_older_than(now - FORGET_REMOVED_AFTER)
 
-        # The Kobo downloads only a few books by itself per sync. Offer articles it has but never
-        # downloaded again, a page at a time. The token tracks one Sync's pages: where it started
-        # (articles delivered since can't have been downloaded yet) and how far the re-offer got.
-        continuing = token.session is not None and token.epoch == epoch
-        session_start = token.session if continuing else gen
-        resend_below = token.resend_below if continuing else None
-        budget = max(settings.new_per_sync_page - sum("NewEntitlement" in r for r in results), 0)
-        undownloaded = [
-            row for row in state.ledger_active()
-            if row["item_id"] not in sent and not row["downloaded_at"] and row["delivered_gen"] <= acked
-            and row["delivered_gen"] < session_start and row["kobo_status"] == "ReadyToRead"
-            and (resend_below is None or row["item_id"] < resend_below)
-        ]
-        reoffered = undownloaded[:budget]
-        for row in reoffered:
-            results.append(self._book("NewEntitlement", row))
-            sent.add(row["item_id"])
-        if len(undownloaded) > len(reoffered):
-            response.more = True
-        if response.more:
-            response.token.session = session_start
-            response.token.resend_below = reoffered[-1]["item_id"] if reoffered else resend_below
-
         if recovering and window is not None:
             results += await self._recovery_sweep(feeds, folder_names)
 
@@ -257,8 +244,8 @@ class SyncEngine:
         state.kv_set("last_sync_at", str(now))
         if window is not None:
             state.kv_set("last_sync_error", "")
-        log.info("sync: %d new, %d re-offered (not downloaded yet), %d changed/removed, %d results in total%s",
-                 sum("NewEntitlement" in r for r in results) - len(reoffered), len(reoffered),
+        log.info("sync: %d new, %d changed/removed, %d results in total%s",
+                 sum("NewEntitlement" in r for r in results),
                  len([r for r in results if "ChangedEntitlement" in r]), len(results),
                  " (more to come)" if response.more else "")
         return response

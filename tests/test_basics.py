@@ -74,10 +74,10 @@ def test_settings_reject_weak_token(monkeypatch):
         Settings()
 
 
-def test_sync_token_keeps_the_page_cursor():
-    token = SyncToken(epoch="e", gen=3, session=2, resend_below=1104)
-    assert SyncToken.parse(token.serialize()) == token
-    assert "session" not in json.loads(base64.b64decode(SyncToken(epoch="e", gen=3).serialize()))
+def test_sync_token_from_0_2_1_dev_1_still_parses():
+    old = base64.b64encode(json.dumps(
+        {"neneko": 1, "epoch": "e", "gen": 3, "store": "", "session": 2, "resend_below": 1104}).encode()).decode()
+    assert SyncToken.parse(old) == SyncToken(epoch="e", gen=3)
 
 
 def test_old_database_is_migrated(tmp_path):

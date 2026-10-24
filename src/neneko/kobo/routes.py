@@ -168,8 +168,8 @@ def create_router(ctx: KoboContext) -> APIRouter:
             return await proxy.passthrough(request, f"/v1/library/{','.join(others)}")
         return Response(status_code=204)
 
-    @router.get("/download/{book_uuid}/{book_format}")
-    async def download(book_uuid: str, book_format: str):
+    @router.api_route("/download/{book_uuid}/{book_format}", methods=["GET", "HEAD"])
+    async def download(book_uuid: str, book_format: str, request: Request):
         item_id = ours(book_uuid)
         row = state.ledger_get(item_id) if item_id is not None else None
         if row is None or not row.get("item_json"):
@@ -181,10 +181,13 @@ def create_router(ctx: KoboContext) -> APIRouter:
         except Exception as exc:  # noqa: BLE001 - logged by the builder
             log.error("download of item %s failed: %r", item_id, exc)
             raise HTTPException(status_code=500) from exc
+        name = f"{item_id}.kepub.epub" if builder.use_kepub else f"{item_id}.epub"
+        if request.method == "HEAD":
+            log.info("download of item %s: size checked (HEAD)", item_id)
+            return FileResponse(path, media_type="application/epub+zip", filename=name)
         state.ledger_set_downloaded(item_id)
         log.info("download of item %s: %s, ready after %.1f s", item_id,
                  "from cache" if was_built else "built on request", time.monotonic() - started)
-        name = f"{item_id}.kepub.epub" if builder.use_kepub else f"{item_id}.epub"
         return FileResponse(path, media_type="application/epub+zip", filename=name)
 
     async def cover(book_uuid: str, width: str, height: str):

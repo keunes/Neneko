@@ -17,21 +17,46 @@ With calibre-web as the stand-in store (firmware 4.38.23697 and 4.38.23828):
 
 ## Observed with Neneko
 
-- The Kobo downloads only 5 new books by itself after a sync; the others are listed
+- The Kobo downloads only a few new books by itself after a sync; the others are listed
   with a download icon and download when tapped. Repeated Syncs don't change that, because
-  the books are already known. 0.2.1-dev.1 tests two remedies together: articles in pages of
-  5 (`x-kobo-sync: continue`) and offering never-downloaded articles again on later Syncs.
+  the books are already known.
+  - 50 articles in one response: the first 5 were downloaded.
+  - 0.2.1-dev.1 sent pages of 5 (`x-kobo-sync: continue`) and offered never-downloaded
+    articles again as `NewEntitlement`s: 25 new and 23 re-offered in 10 pages, and only the 3 in
+    the last page were downloaded. So neither helps, and the code was removed again.
+  - Only those books' `metadata` and file were requested, so Nickel picks what to download
+    before it fetches anything.
+  - 0.2.1-dev.2 matches calibre-web more closely: every `NewEntitlement` carries a
+    `ReadingState` (all timestamps the delivery time) and the sync waits up to 10 s for builds
+    so `DownloadUrls[].Size` is the real file size. `/download` also answers `HEAD`.
 - kepubify's dummy title page ("intentionally left blank") is disabled with
   `--no-add-dummy-titlepage`.
 
 ## Still to verify with Neneko itself
 
-- Download `Size` in the sync metadata is an estimate until an article is built. Komga also
-  reports sizes that differ from the downloaded file, so the Kobo is expected to tolerate it.
+- Download `Size` in the sync metadata is an estimate for articles not built within the
+  sync's wait. Komga also reports sizes that differ from the downloaded file, so the Kobo is
+  expected to tolerate it.
 - `IsRemoved` for an ID the Kobo doesn't have (the recovery sweep after a database loss) should
   be ignored by the Kobo.
 - Covers are served as PNG (dithered) from a URL ending in `image.jpg`.
 - `products/<id>/nextread` for Neneko's own articles is answered with 404 locally.
+
+## Seeing what the Kobo does: Nickel's debug log
+
+Nickel (the Kobo's reading app) can stream its debug log over the network. It shows the sync
+and download commands (`SyncLibraryCommand`, `LibraryNextPageCommand`,
+`ResolveEntitlementUpdatesCommand`, `DownloadQueuedBooksCommand`, `DownloadUrlCommand`,
+`DownloadContentFileCommand`) and is the most direct way to see why downloads stop.
+
+1. Type `devmodeon` in the Kobo's search field and run it; Developer options appear under
+   Settings → Device information.
+2. Over USB, rename `.kobo/ssh-disabled` to `.kobo/ssh-enabled` (if your firmware has it).
+3. Over SSH, add `QT_LOGGING_RULES="*.debug=true"` to the line that starts Nickel in
+   `/etc/init.d/rcS`. **This is the risky step**: a mistake there can keep the Kobo from
+   starting its reading app until it is fixed over SSH or the Kobo is reset. Keep a copy of
+   the original line.
+4. Reboot, then run `nc <kobo-ip> 5001` on a computer while you press Sync.
 
 ## Protocol summary
 

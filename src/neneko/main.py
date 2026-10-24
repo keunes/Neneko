@@ -5,6 +5,7 @@ import html
 import logging
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import httpx
 import uvicorn
@@ -34,7 +35,7 @@ def create_app(settings: Settings | None = None, *,
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     state = State(settings.db_path)
     news = NewsClient(settings.nc_url, settings.nc_user, settings.nc_app_password, transport=news_transport)
-    fetcher = Fetcher(settings.cookies_file, transport=fetch_transport)
+    fetcher = Fetcher(settings.cookies_file, user_agent=settings.user_agent, transport=fetch_transport)
     builder = Builder(settings, state, fetcher)
     prefix = instance_prefix(settings.nc_url, settings.nc_user)
     engine = SyncEngine(settings, state, news, builder, prefix)
@@ -96,29 +97,44 @@ def create_app(settings: Settings | None = None, *,
         last_sync = state.kv_get("last_sync_at")
         last_error = state.kv_get("last_sync_error") or ""
         outbox = state.outbox_pending()
-        when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(float(last_sync))) if last_sync else "never"
         nc_ok, nc_summary, nc_hint = await nextcloud_check()
         rows = [
             ("Nextcloud News", f"OK: {nc_summary}" if nc_ok else f"NOT OK: {nc_summary}"),
             *([("What to check", nc_hint)] if nc_hint else []),
-            ("Last sync", when),
+            ("Last sync", _Time(float(last_sync)) if last_sync else "never"),
             ("Articles on the Kobo", counts["on_kobo"]),
+            ("Downloaded by the Kobo", counts["downloaded"]),
             ("Being read", counts["reading"]),
             ("Finished (leaving after the grace period)", counts["finished"]),
             ("Waiting to be sent to Nextcloud", len(outbox)),
             ("Last Nextcloud error", last_error or "none"),
             ("KEPUB conversion", "kepubify" if builder.use_kepub else "off (plain EPUB)"),
         ]
-        table = "".join(f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in rows)
+        table = "".join(f"<tr><th>{html.escape(str(k))}</th><td>{_cell(v)}</td></tr>" for k, v in rows)
         return (
             "<!doctype html><html lang=en><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'><title>Neneko</title>"
             "<style>body{font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem}"
             "th{text-align:left;padding:.3rem 1rem .3rem 0;font-weight:500}td{padding:.3rem 0}</style>"
-            f"<h1>Neneko</h1><table>{table}</table><p><small>Version {__version__}</small></p></html>"
+            f"<h1>Neneko</h1><table>{table}</table><p><small>Version {__version__}</small></p>"
+            # Times in the browser's time zone; the container usually runs in UTC.
+            "<script>for(const t of document.querySelectorAll('time'))"
+            "t.textContent=new Date(t.dateTime).toLocaleString()</script></html>"
         )
 
     return app
+
+
+class _Time(float):
+    """A Unix time shown on the status page."""
+
+
+def _cell(value) -> str:
+    if isinstance(value, _Time):
+        moment = datetime.fromtimestamp(value, tz=timezone.utc)
+        return (f'<time datetime="{moment.isoformat(timespec="seconds")}">'
+                f'{moment.strftime("%Y-%m-%d %H:%M:%S")} UTC</time>')
+    return html.escape(str(value))
 
 
 class _RedactToken(logging.Filter):

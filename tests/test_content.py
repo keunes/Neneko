@@ -76,3 +76,24 @@ def test_clean_fragment_has_no_wrapper_and_title_is_dropped():
     assert cleaned.startswith("<h1>")
     assert drop_leading_title(cleaned, "Title") == "<p>Text &amp; more</p>"
     assert clean_fragment("plain &lt;text&gt;", "https://x/") == "plain &lt;text&gt;"
+
+
+def test_requests_look_like_a_browser_and_refusals_are_logged_once(caplog):
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(403)
+
+    fetcher = Fetcher(transport=httpx.MockTransport(handler))
+    with caplog.at_level("INFO", logger="neneko.builder.extract"):
+        assert fetcher.page("https://blocked.example/post") is None
+        for number in range(3):
+            assert fetcher.binary(f"https://blocked.example/img{number}.png",
+                                  referer="https://blocked.example/post") is None
+    page, image = seen[0], seen[1]
+    assert "Neneko" not in page.headers["user-agent"] and "Chrome/" in page.headers["user-agent"]
+    assert page.headers["accept"].startswith("text/html") and "referer" not in page.headers
+    assert image.headers["accept"].startswith("image/") and image.headers["referer"] == "https://blocked.example/post"
+    assert len([r for r in caplog.records if r.levelname == "INFO"]) == 1
+    assert Fetcher(user_agent="Custom/1")._client.headers["user-agent"] == "Custom/1"

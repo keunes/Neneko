@@ -125,6 +125,19 @@ class Builder:
         for row in sorted(rows, key=lambda r: -r["item_id"]):
             self._submit(row, BACKGROUND)
 
+    async def wait(self, rows: list[dict], timeout: float) -> None:
+        """Queue builds and wait until they are done or `timeout` seconds have passed."""
+        if not rows or not self._threads:
+            return
+        futures = [asyncio.wrap_future(self._submit(row, BACKGROUND))
+                   for row in sorted(rows, key=lambda r: -r["item_id"])]
+        done, pending = await asyncio.wait(futures, timeout=timeout)
+        for future in done:
+            future.exception()  # failures are logged by the worker
+        if pending:
+            log.info("%d of %d articles not built yet; the sync reports estimated sizes for them",
+                     len(pending), len(rows))
+
     async def article(self, row: dict, timeout: float = 180) -> Path:
         path = self.article_path(row)
         if path.exists():
@@ -171,7 +184,7 @@ class Builder:
         if url is None:
             sources = image_sources(clean_fragment(item.get("body") or "", item.get("url") or ""))
             url = sources[0] if sources else None
-        data = self.fetcher.binary(url) if url else None
+        data = self.fetcher.binary(url, referer=item.get("url")) if url else None
         self._write_atomic(path, data or b"")
         return data
 
@@ -206,7 +219,7 @@ class Builder:
         for src in image_sources(fragment):
             if src in mapping or len(images) >= self.settings.max_images:
                 continue
-            data = self.fetcher.binary(src)
+            data = self.fetcher.binary(src, referer=content.base_url)
             processed = process_image(data, max_width=self.settings.image_max_width,
                                       grayscale=self.settings.image_grayscale,
                                       dither=self.settings.image_dither) if data else None

@@ -3,6 +3,8 @@ whether it beats the text Nextcloud News already has."""
 
 import http.cookiejar
 import logging
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,10 +18,13 @@ from .sanitize import text_length
 
 log = logging.getLogger(__name__)
 
-USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/130.0 Safari/537.36 Neneko/0.1"
-)
+# Some sites refuse anything that doesn't look like a browser, so Neneko sends what one sends.
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+PAGE_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+IMAGE_ACCEPT = "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
+ACCEPT_LANGUAGE = "en-US,en;q=0.9,*;q=0.5"
+REFUSED = {401, 403, 429}
+REFUSAL_LOG_INTERVAL = 600  # seconds between "site refuses" lines per host
 MAX_PAGE_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 # An extraction that recovers less than this share of the feed's own text is
@@ -30,7 +35,8 @@ MIN_SHARE_OF_FEED_TEXT = 0.8
 class Fetcher:
     """Blocking HTTP client used by the build workers."""
 
-    def __init__(self, cookies_file: Path | None = None, *, transport: httpx.BaseTransport | None = None):
+    def __init__(self, cookies_file: Path | None = None, *, user_agent: str = "",
+                 transport: httpx.BaseTransport | None = None):
         cookies = None
         if cookies_file:
             jar = http.cookiejar.MozillaCookieJar(str(cookies_file))
@@ -39,18 +45,37 @@ class Fetcher:
         self._client = httpx.Client(
             follow_redirects=True,
             timeout=httpx.Timeout(20, connect=5),
-            headers={"User-Agent": USER_AGENT, "Accept-Language": "*"},
+            headers={"User-Agent": user_agent or USER_AGENT, "Accept-Language": ACCEPT_LANGUAGE},
             cookies=cookies,
             transport=transport,
         )
+        self._refusals: dict[str, float] = {}
+        self._refusals_lock = threading.Lock()
 
     def close(self) -> None:
         self._client.close()
 
-    def _get(self, url: str, limit: int) -> tuple[bytes, str, str, str | None] | None:
+    def _log_refusal(self, url: str, status: int) -> None:
+        """One line per site every few minutes, not one per image."""
+        host = httpx.URL(url).host
+        now = time.monotonic()
+        with self._refusals_lock:
+            quiet = now - self._refusals.get(host, -REFUSAL_LOG_INTERVAL) < REFUSAL_LOG_INTERVAL
+            if not quiet:
+                self._refusals[host] = now
+        if quiet:
+            log.debug("fetch %s: HTTP %s", url, status)
+        else:
+            log.info("fetch %s: HTTP %s; %s refuses automated requests (more refusals from it in the next "
+                     "%d minutes are logged at DEBUG level)", url, status, host, REFUSAL_LOG_INTERVAL // 60)
+
+    def _get(self, url: str, limit: int, headers: dict[str, str]) -> tuple[bytes, str, str, str | None] | None:
         """Return (body, final url, content type, charset), or None on any failure."""
         try:
-            with self._client.stream("GET", url) as response:
+            with self._client.stream("GET", url, headers=headers) as response:
+                if response.status_code in REFUSED:
+                    self._log_refusal(url, response.status_code)
+                    return None
                 if response.status_code >= 400:
                     log.info("fetch %s: HTTP %s", url, response.status_code)
                     return None
@@ -69,7 +94,7 @@ class Fetcher:
 
     def page(self, url: str) -> tuple[str, str] | None:
         """Return (html, final url) of a web page."""
-        result = self._get(url, MAX_PAGE_BYTES)
+        result = self._get(url, MAX_PAGE_BYTES, {"Accept": PAGE_ACCEPT})
         if result is None:
             return None
         body, final_url, content_type, charset = result
@@ -79,8 +104,12 @@ class Fetcher:
             return body.decode(charset, errors="replace"), final_url
         return decode_file(body), final_url  # sniffs <meta charset> and byte patterns
 
-    def binary(self, url: str) -> bytes | None:
-        result = self._get(url, MAX_IMAGE_BYTES)
+    def binary(self, url: str, referer: str | None = None) -> bytes | None:
+        """An image; `referer` is the page it appears on, as a browser would send it."""
+        headers = {"Accept": IMAGE_ACCEPT}
+        if referer and referer.startswith(("http://", "https://")):
+            headers["Referer"] = referer
+        result = self._get(url, MAX_IMAGE_BYTES, headers)
         return result[0] if result is not None else None
 
 
