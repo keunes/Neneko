@@ -15,10 +15,12 @@ def timestamp(value: float | int | None = None) -> str:
 
 
 def arrival(row: dict) -> float | None:
-    """When the article arrived in Nextcloud News: its lastModified, unless it changed there since
-    (e.g. marked unread again). The Kobo sorts "Date added" by the entitlement's Created and
-    "Recent" by the reading state's PriorityTimestamp, so sending this keeps Nextcloud's
-    newest-first order instead of grouping articles by sync page (docs/kobo-notes.md)."""
+    """When Neneko first saw the article, in Nextcloud's order (see sync.arrival_times). The Kobo
+    sorts "Date added" by the entitlement's Created and "Recent" by the reading state's
+    PriorityTimestamp, so this keeps Nextcloud's newest-first order instead of grouping articles
+    by sync page (docs/kobo-notes.md). Rows from before 0.2.1-dev.8 fall back to lastModified."""
+    if row.get("arrived_at"):
+        return row["arrived_at"]
     item = json.loads(row["item_json"]) if row.get("item_json") else {}
     return modified_at(item) or row.get("delivered_at")
 

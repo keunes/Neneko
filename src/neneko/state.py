@@ -11,7 +11,7 @@ import threading
 import time
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS kv (
@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS ledger (
     dismissed INTEGER NOT NULL DEFAULT 0,
     downloaded_at REAL,
     reoffer_count INTEGER NOT NULL DEFAULT 0,  -- unused since 0.2.1-dev.6 (re-offering was removed)
-    last_reoffered_at REAL                     -- unused since 0.2.1-dev.6
+    last_reoffered_at REAL,                    -- unused since 0.2.1-dev.6
+    arrived_at REAL  -- when Neneko first saw the article; the Kobo sorts by it (see sync.py)
 );
 CREATE TABLE IF NOT EXISTS outbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,6 +87,8 @@ class State:
             if 0 < version < 3:
                 self._db.execute("ALTER TABLE ledger ADD COLUMN reoffer_count INTEGER NOT NULL DEFAULT 0")
                 self._db.execute("ALTER TABLE ledger ADD COLUMN last_reoffered_at REAL")
+            if 0 < version < 4:
+                self._db.execute("ALTER TABLE ledger ADD COLUMN arrived_at REAL")
             self._db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     def close(self) -> None:
@@ -150,15 +153,16 @@ class State:
         return self._all("SELECT * FROM ledger WHERE removed_at IS NOT NULL ORDER BY item_id DESC")
 
     def ledger_deliver(self, item: dict, *, uuid: str, folder_id: int | None, feed_title: str,
-                       gen: int, size: int) -> None:
-        """Insert or reset a row for an item being sent to the Kobo as new."""
+                       gen: int, size: int, arrived_at: float | None = None) -> None:
+        """Insert or reset a row for an item being sent to the Kobo as new. A row that already has
+        an arrival time keeps it."""
         now = time.time()
         self._exec(
             """
             INSERT INTO ledger (item_id, uuid, feed_id, folder_id, feed_title, title, content_hash,
-                                item_json, size, delivered_at, delivered_gen, changed_gen)
+                                item_json, size, delivered_at, delivered_gen, changed_gen, arrived_at)
             VALUES (:item_id, :uuid, :feed_id, :folder_id, :feed_title, :title, :content_hash,
-                    :item_json, :size, :now, :gen, :gen)
+                    :item_json, :size, :now, :gen, :gen, :arrived_at)
             ON CONFLICT(item_id) DO UPDATE SET
                 feed_id = excluded.feed_id, folder_id = excluded.folder_id,
                 feed_title = excluded.feed_title, title = excluded.title,
@@ -168,13 +172,13 @@ class State:
                 removed_at = NULL, removed_gen = 0, kobo_status = 'ReadyToRead',
                 status_at = NULL, finished_at = NULL, bookmark_json = NULL,
                 statistics_json = NULL, state_at = NULL, nc_read_by_neneko = 0, dismissed = 0,
-                downloaded_at = NULL
+                downloaded_at = NULL, arrived_at = COALESCE(ledger.arrived_at, excluded.arrived_at)
             """,
             {
                 "item_id": item["id"], "uuid": uuid, "feed_id": item.get("feedId"),
                 "folder_id": folder_id, "feed_title": feed_title, "title": item.get("title"),
                 "content_hash": item.get("contentHash"), "item_json": json.dumps(item),
-                "size": size, "now": now, "gen": gen,
+                "size": size, "now": now, "gen": gen, "arrived_at": arrived_at,
             },
         )
 
@@ -186,6 +190,11 @@ class State:
             (folder_id, feed_title, item.get("title"), item.get("contentHash"),
              json.dumps(item), size, gen, item["id"]),
         )
+
+    def ledger_arrivals(self) -> dict[int, float]:
+        """Arrival times already given out, by item ID (rows of removed articles included)."""
+        return {row["item_id"]: row["arrived_at"]
+                for row in self._all("SELECT item_id, arrived_at FROM ledger WHERE arrived_at IS NOT NULL")}
 
     def ledger_set_downloaded(self, item_id: int) -> None:
         self._exec("UPDATE ledger SET downloaded_at = ? WHERE item_id = ? AND downloaded_at IS NULL",

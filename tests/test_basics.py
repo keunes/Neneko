@@ -121,8 +121,22 @@ def test_schema_2_database_gains_reoffer_tracking(tmp_path):
     db.close()
     state = State(path)
     row = state.ledger_get(1)
-    assert (row["downloaded_at"], row["reoffer_count"], row["last_reoffered_at"]) == (123.0, 0, None)
-    assert state._one("PRAGMA user_version")["user_version"] == 3
+    assert (row["downloaded_at"], row["reoffer_count"], row["arrived_at"]) == (123.0, 0, None)
+    assert state._one("PRAGMA user_version")["user_version"] == 4
+
+
+def test_arrival_times_follow_item_ids():
+    from neneko.sync import arrival_times
+
+    # Same lastModified (one feed fetch): one second apart, newest highest.
+    assert arrival_times({1: 100, 2: 100, 3: 100}, {}) == {3: 100, 2: 99, 1: 98}
+    # An old article marked unread again (late lastModified) stays below newer ones.
+    assert arrival_times({1: 500, 2: 100, 3: 200}, {}) == {3: 200, 2: 100, 1: 99}
+    # Between articles that already have times.
+    assert arrival_times({15: 5000}, {10: 1000, 20: 2000}) == {15: 1999}
+    assert arrival_times({15: 10}, {10: 1000, 20: 2000}) == {15: 1001}
+    # No room left between neighbours: share the older one's second.
+    assert arrival_times({11: 5000}, {10: 1000, 12: 1001}) == {11: 1000}
 
 
 def test_version_has_a_single_source():

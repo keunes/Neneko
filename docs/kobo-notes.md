@@ -182,12 +182,17 @@ as newer. Seen on the device: a 29-page Sync gave 29 distinct `DateLastRead` val
 Neneko sends the newest articles first, the oldest articles came out on top of "Recent" (and
 "Date added").
 
-Since 0.2.1-dev.7 both timestamps are the article's arrival in Nextcloud News: its
-`lastModified`, which follows Nextcloud's newest-first order (by item ID) unless the article
-changed there since, e.g. was marked unread again (it then sorts as just arrived).
-`PriorityTimestamp` becomes the time the article was last opened once the Kobo reports reading
-it. This only affects books new to the Kobo: `updateVolume` never moves `DateLastRead`
-backwards, so articles already on it keep their old order.
+Nextcloud News itself sorts only by item ID (`ItemMapperV2`: `addOrderBy('items.id', …)`), shows
+`pubDate` in its web UI, and keeps no first-seen time; `lastModified` changes with every
+read/unread/star. So since 0.2.1-dev.8 Neneko keeps its own arrival time per article
+(`ledger.arrived_at`, `sync.arrival_times`): the article's `lastModified` when Neneko first
+delivers it, moved where needed so times rise with item ID (one second apart where possible,
+since the Kobo keeps seconds and breaks ties by title), and kept through later read/unread
+changes and removals. Both timestamps are that time, so "Recent" and "Date added" follow
+Nextcloud's order; `PriorityTimestamp` becomes the time the article was last opened once the
+Kobo reports reading it. (0.2.1-dev.7 sent `lastModified` directly, which moved articles marked
+unread again to the top.) This only affects books new to the Kobo: `updateVolume` never moves
+`DateLastRead` backwards, so articles already on it keep their old order.
 
 ### What Neneko does with this
 

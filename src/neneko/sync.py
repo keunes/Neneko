@@ -1,8 +1,10 @@
 """What goes onto the Kobo, what comes off it, and read state back to Nextcloud."""
 
 import asyncio
+import bisect
 import json
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 
@@ -19,6 +21,33 @@ log = logging.getLogger(__name__)
 KOBO_STATUSES = {"ReadyToRead", "Reading", "Finished"}
 FORGET_REMOVED_AFTER = 30 * 86400
 SYNC_BUILD_WAIT = 10  # seconds a sync waits for new articles to be built
+
+
+def arrival_times(new: dict[int, float], known: dict[int, float]) -> dict[int, int]:
+    """Arrival times (whole seconds) for newly delivered articles, by item ID.
+
+    The Kobo sorts "Recent" and "Date added" by a timestamp (docs/kobo-notes.md); Nextcloud News
+    sorts by item ID and keeps no first-seen time. So an article's time is its lastModified when
+    Neneko first sees it (`new`), moved where needed so that times rise with item ID, also against
+    the times already given out (`known`), one second apart where there is room (the Kobo keeps
+    seconds and breaks ties by title)."""
+    known_ids = sorted(known)
+    times: dict[int, int] = {}
+    upper = math.inf  # the time of the next newer article
+    for item_id in sorted(set(new) | set(known), reverse=True):
+        if item_id in known:
+            upper = known[item_id]
+            continue
+        i = bisect.bisect_left(known_ids, item_id)
+        lower = known[known_ids[i - 1]] if i else -math.inf  # the next older known article
+        t = min(int(new[item_id]), upper - 1)
+        if lower + 1 <= upper - 1:
+            t = max(t, lower + 1)
+        else:
+            t = max(lower, min(t, upper))  # no room between them: share a second
+        times[item_id] = int(t)
+        upper = t
+    return times
 
 
 @dataclass
@@ -203,13 +232,14 @@ class SyncEngine:
             response.more = len(new_ids) > page
             new_ids = new_ids[:page]
 
+            arrived = arrival_times({i: modified_at(by_id[i]) or now for i in new_ids}, state.ledger_arrivals())
             with state.transaction():
                 for item_id in new_ids:
                     item = by_id[item_id]
                     feed = feeds.get(item.get("feedId"), {})
                     state.ledger_deliver(
                         item, uuid=item_uuid(self.prefix, item_id), folder_id=feed.get("folderId") or None,
-                        feed_title=feed.get("title") or "", gen=gen, size=0,
+                        feed_title=feed.get("title") or "", gen=gen, size=0, arrived_at=arrived.get(item_id),
                     )
                     if settings.mark_read_on == "delivered":
                         state.outbox_add(item_id, "read")

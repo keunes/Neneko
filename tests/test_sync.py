@@ -427,6 +427,21 @@ def test_kobo_sorts_like_nextcloud_across_pages(make_kobo, news):
     assert created[-1] == "2026-09-21T14:13:20Z"  # the oldest article's own time
 
 
+def test_arrival_time_is_kept_through_read_state_changes(make_kobo, news):
+    older = news.add_item(51, lastModified=1_790_000_000)
+    newer = news.add_item(51, lastModified=1_790_000_600)
+    kobo = make_kobo()
+    first = {e["BookEntitlement"]["Id"]: e["BookEntitlement"]["Created"]
+             for e in entitlements(kobo.sync(), "NewEntitlement")}
+    news.set_read(older["id"])  # read elsewhere: removed from the Kobo
+    assert ids_of(kobo.sync(), "ChangedEntitlement", removed=True) == [uuid_of(kobo, older["id"])]
+    news.set_read(older["id"], read=False)  # unread again: lastModified is now, the order isn't
+    back = entitlements(kobo.sync(), "NewEntitlement")
+    assert [e["BookEntitlement"]["Id"] for e in back] == [uuid_of(kobo, older["id"])]
+    assert back[0]["BookEntitlement"]["Created"] == first[uuid_of(kobo, older["id"])] \
+        < first[uuid_of(kobo, newer["id"])]
+
+
 def test_sync_reports_the_real_file_size(make_kobo, news, monkeypatch):
     from neneko.builder.queue import Builder
 
