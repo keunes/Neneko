@@ -38,6 +38,8 @@ With calibre-web as the stand-in store (firmware 4.38.23697 and 4.38.23828):
     `MaxDownload` in the `[FeatureSettings]` section of `Kobo eReader.conf`. **Untested.**
 - Articles removed on the Kobo are not sent again, unless they change in Nextcloud
   afterwards (`lastModified` later than the removal), for example when marked unread again.
+  Because the removal itself arrives late (see `DELETE` below), an article marked unread since
+  the previous Sync also wins: its pending "mark read" is dropped before the outbox is sent.
 - kepubify's dummy title page ("intentionally left blank") is disabled with
   `--no-add-dummy-titlepage`.
 
@@ -66,7 +68,9 @@ How to watch the Kobo's own log during a Sync: [kobo-debugging.md](kobo-debuggin
   `x-kobo-sync: continue` makes the Kobo ask again straight away.
 - `PUT /v1/library/<id>/state` carries `ReadingStates[0]` with `StatusInfo.Status`
   (`ReadyToRead`, `Reading`, `Finished`), `CurrentBookmark` and `Statistics`.
-- `DELETE /v1/library/<id>` is "remove from device".
+- `DELETE /v1/library/<id>` is "remove from device". The Kobo sends it only at the next Sync
+  (just before `library/sync`), with no body and no timestamp, so the server can't know when
+  the book was actually removed on the device.
 - Covers: `<image host>/<id>/<width>/<height>/false/image.jpg`.
 
 Neneko's sync token holds the database epoch, the generation number of the last response, and

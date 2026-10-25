@@ -159,10 +159,10 @@ def create_router(ctx: KoboContext) -> APIRouter:
         mine = [(value, ours(value)) for value in uuids]
         handled = [item_id for _, item_id in mine if item_id is not None]
         for item_id in handled:
+            # Any "mark read" goes out with the sync that follows, after checking whether the
+            # article was marked unread in Nextcloud in the meantime.
             engine.delete_from_kobo(item_id)
             log.info("item %s deleted on the Kobo (%s)", item_id, settings.delete_action)
-        if handled:
-            engine.flush_soon()
         others = [value for value, item_id in mine if item_id is None]
         if others and proxy.enabled:
             return await proxy.passthrough(request, f"/v1/library/{','.join(others)}")

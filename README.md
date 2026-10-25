@@ -97,8 +97,10 @@ You need Docker (with Compose), Nextcloud with the News app, and a Kobo on the s
   changes it; see [`docs/kobo-notes.md`](docs/kobo-notes.md) for what was tried.
 - Articles marked read elsewhere (web, phone app) are removed at the next sync.
 - Deleting an article on the Kobo marks it read in Nextcloud (or only forgets it, see
-  `NENEKO_DELETE_ACTION`) and it isn't sent again, unless you change it in Nextcloud
-  afterwards: mark it unread there and it comes back at the next Sync.
+  `NENEKO_DELETE_ACTION`) and it isn't sent again, unless you mark it unread in Nextcloud:
+  then it comes back at the next Sync. The Kobo only reports a deletion at its next Sync, and
+  without saying when it happened, so Neneko can't tell which came first. Anything you
+  changed in Nextcloud since the previous Sync counts as the newer choice.
 
 **Collections.** Kobo collections can't be nested, but one article can be in several. By default
 every article is in `Neneko` (everything) and `Neneko · <folder>`; with `NENEKO_COLLECTIONS=all,folder,feed`

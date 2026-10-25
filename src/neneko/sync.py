@@ -129,6 +129,29 @@ class SyncEngine:
     def flush_soon(self) -> None:
         asyncio.get_running_loop().create_task(self.flush_outbox(timeout=5))
 
+    async def _unread_beats_kobo_removal(self) -> None:
+        """The Kobo reports a removal only at the next Sync, with no time of its own. An article
+        marked unread in Nextcloud since the previous Sync is the newer wish: drop the pending
+        "read" from the removal, so the article is delivered again."""
+        dismissed = self.state.ledger_dismissed_ids()
+        pending = [row["item_id"] for row in self.state.outbox_pending()
+                   if row["action"] == "read" and row["item_id"] in dismissed]
+        last_sync = self.state.kv_get("last_sync_at")
+        if not pending or not last_sync:
+            return
+        try:
+            changed = await self.news.items_updated_since(int(float(last_sync)))
+        except NextcloudError as exc:
+            log.warning("could not check articles removed on the Kobo: %s", exc)
+            return
+        unread = {item["id"] for item in changed if item.get("unread")}
+        for item_id in pending:
+            if item_id in unread:
+                self.state.outbox_cancel(item_id)
+                self.state.ledger_undismiss(item_id)
+                log.info("item %s: removed on the Kobo but marked unread in Nextcloud since the last sync; "
+                         "keeping it unread", item_id)
+
     # library sync
 
     async def library_sync(self, token: SyncToken) -> SyncResponse:
@@ -145,6 +168,7 @@ class SyncEngine:
         response = SyncResponse(token=SyncToken(epoch=epoch, gen=gen, store_token=token.store_token))
         results = response.results
 
+        await self._unread_beats_kobo_removal()
         await self.flush_outbox()
         try:
             window, feeds, folder_names = await self._window()

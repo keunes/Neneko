@@ -3,8 +3,8 @@
 Nickel, the Kobo's reading app, can stream a detailed log over Wi-Fi. It shows each step of a
 Sync and why a book is or isn't downloaded. This is only needed for troubleshooting.
 
-**Be careful:** unlike the rest of the setup, which only edits a settings file over USB, this
-changes system settings on the Kobo. Follow the steps exactly and keep the backups.
+Unlike the rest of the setup, which only edits a settings file over USB, this turns on SSH
+access to the Kobo. It only adds one small file, which you can remove again (step 6).
 
 ## 1. Turn on developer options
 
@@ -40,10 +40,9 @@ cat /root/.config/QtProject/qtlogging.ini     # shows the two lines
 reboot
 ```
 
-If no debug lines show up in step 4, there is a fallback: add `QT_LOGGING_RULES="*.debug=true"`
-to the line that starts Nickel in `/etc/init.d/rcS`. **Make a copy first**
-(`cp /etc/init.d/rcS /etc/init.d/rcS.orig`): a mistake in that file can keep the reading app from
-starting until it is fixed over SSH.
+If no `.debug` lines show up in step 4, check that the folder matches what the first command
+printed (`XDG_CONFIG_HOME/QtProject` if that is set, otherwise `HOME/.config/QtProject`), that
+`cat` shows exactly the two lines, and that you restarted the Kobo afterwards.
 
 ## 4. Capture a Sync
 
@@ -80,11 +79,14 @@ sed -E 's#/kobo/[A-Za-z0-9_-]+#/kobo/<token>#g; s#https?://[^/" ]+#http://<host>
 
 Then look through `kobo-debug-clean.log` once more for anything personal.
 
+Neneko's own log masks the token, but its startup lines show your Nextcloud address and
+`NENEKO_PUBLIC_URL`; remove those too before sharing it.
+
 ## 6. Turning it off again
 
 ```sh
 ssh root@<kobo-ip>
-rm /root/.config/QtProject/qtlogging.ini            # or: cp /etc/init.d/rcS.orig /etc/init.d/rcS
+rm /root/.config/QtProject/qtlogging.ini            # the file you created in step 3
 exit
 ```
 

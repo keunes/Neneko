@@ -203,6 +203,9 @@ class State:
             (time.time(), item_id),
         )
 
+    def ledger_undismiss(self, item_id: int) -> None:
+        self._exec("UPDATE ledger SET dismissed = 0 WHERE item_id = ?", (item_id,))
+
     def ledger_dismissed_ids(self) -> dict[int, float]:
         """Articles deleted on the Kobo, with when they left it."""
         rows = self._all("SELECT item_id, removed_at FROM ledger WHERE dismissed = 1")
@@ -266,6 +269,9 @@ class State:
                 "INSERT INTO outbox (item_id, action, created_at) VALUES (?, ?, ?)",
                 (item_id, action, time.time()),
             )
+
+    def outbox_cancel(self, item_id: int) -> None:
+        self._exec("DELETE FROM outbox WHERE item_id = ?", (item_id,))
 
     def outbox_pending(self) -> list[dict]:
         return self._all("SELECT * FROM outbox ORDER BY id")

@@ -231,16 +231,33 @@ def test_delete_on_kobo_marks_read_by_default(make_kobo, news):
 
 def test_deleted_article_comes_back_when_marked_unread_again(make_kobo, news):
     item = news.add_item(51)
+    item["lastModified"] = int(time.time()) - 60
     kobo = make_kobo()
     kobo.sync()
     kobo.client.delete(kobo.url(f"/v1/library/{uuid_of(kobo, item['id'])}"))
-    # The read hasn't reached Nextcloud yet: the article must not come straight back.
+    assert news.marks == []  # the read waits for the sync
     assert ids_of(kobo.sync(), "NewEntitlement") == []
-    flush(kobo)
+    assert news.marks == [("read", [item["id"]])]
     assert ids_of(kobo.sync(), "NewEntitlement") == []  # read in Nextcloud now
     news.set_read(item["id"], read=False)
     news.items[item["id"]]["lastModified"] = int(time.time()) + 1  # a later change than the removal
     assert ids_of(kobo.sync(), "NewEntitlement") == [uuid_of(kobo, item["id"])]
+
+
+def test_unread_in_nextcloud_beats_a_removal_reported_later(make_kobo, news):
+    item = news.add_item(51)
+    item["lastModified"] = int(time.time()) - 60
+    kobo = make_kobo()
+    kobo.sync()
+    kobo.ctx.state.kv_set("last_sync_at", str(time.time() - 30))
+    # Removed on the Kobo, then marked read and unread again in Nextcloud before the next Sync,
+    # which is when the Kobo reports the removal.
+    news.set_read(item["id"])
+    news.set_read(item["id"], read=False)
+    kobo.client.delete(kobo.url(f"/v1/library/{uuid_of(kobo, item['id'])}"))
+    assert ids_of(kobo.sync(), "NewEntitlement") == [uuid_of(kobo, item["id"])]
+    assert news.marks == []
+    assert news.items[item["id"]]["unread"]
 
 
 def test_forgotten_article_comes_back_only_after_a_change(make_kobo, news):
