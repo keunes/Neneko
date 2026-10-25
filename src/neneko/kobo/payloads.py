@@ -80,8 +80,11 @@ def metadata(row: dict, *, download_url: str, download_format: str, size: int, l
 
 
 def reading_state(row: dict) -> dict:
+    # The Kobo's DateLastRead ("Recent") becomes the latest of PriorityTimestamp and the three
+    # LastModified below (ReadingStateParser::parseReadingState), so until the Kobo reports on the
+    # article, all four are its arrival time.
     status_info = {
-        "LastModified": timestamp(row.get("status_at") or row.get("delivered_at")),
+        "LastModified": timestamp(row.get("status_at") or arrival(row)),
         "Status": row.get("kobo_status") or "ReadyToRead",
         "TimesStartedReading": row.get("times_started") or 0,
     }
@@ -89,16 +92,15 @@ def reading_state(row: dict) -> dict:
         status_info["LastTimeStartedReading"] = timestamp(row["last_started_at"])
     bookmark = json.loads(row["bookmark_json"]) if row.get("bookmark_json") else {}
     statistics = json.loads(row["statistics_json"]) if row.get("statistics_json") else {}
-    modified = timestamp(row.get("state_at") or row.get("delivered_at"))
+    reported = timestamp(row.get("state_at") or arrival(row))
     return {
         "EntitlementId": row["uuid"],
         "Created": timestamp(arrival(row)),
-        "LastModified": modified,
-        # Becomes the Kobo's DateLastRead until the article is opened ("Recent" sorts by it).
-        "PriorityTimestamp": timestamp(row.get("state_at") or arrival(row)),
+        "LastModified": timestamp(row.get("state_at") or row.get("delivered_at")),
+        "PriorityTimestamp": reported,
         "StatusInfo": status_info,
-        "Statistics": {"LastModified": modified, **statistics},
-        "CurrentBookmark": {"LastModified": modified, **bookmark},
+        "Statistics": {"LastModified": reported, **statistics},
+        "CurrentBookmark": {"LastModified": reported, **bookmark},
     }
 
 

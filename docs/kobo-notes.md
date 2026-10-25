@@ -170,8 +170,10 @@ Neneko's articles; sideloaded books use other fields):
 - **Recent** (`sortByNewest`, `RecentPrimarySorter` / `RecentSecondarySorter`): by
   `DateLastRead` (`RecentKey`), newest first. Nickel sets `DateLastRead` from the sync's
   `ReadingState.PriorityTimestamp` when that is later than what the book has
-  (`ReadingState::updateVolume`), and to the current time when the book is opened. So for an
-  article that was never opened, "Recent" is the `PriorityTimestamp` the server sent.
+  (`ReadingState::updateVolume`), and to the current time when the book is opened. Before that,
+  the parser raises `PriorityTimestamp` to the latest of itself, `CurrentBookmark.LastModified`,
+  `StatusInfo.LastModified` and `Statistics.LastModified` (`ReadingStateParser::parseReadingState`).
+  So for an article that was never opened, "Recent" is the latest of those four timestamps.
 - **Date added** (`sortByDateAdded`, oldest first with `sortByDateAddedOldest`): by the
   entitlement's `Created` date (`Volume::getDateAddedSortKey` →
   `EntitlementManager::getCreatedRaw`), i.e. `BookEntitlement.Created` from the sync.
@@ -191,7 +193,10 @@ read/unread/star. So since 0.2.1-dev.8 Neneko keeps its own arrival time per art
 (`ledger.arrived_at`, `sync.arrival_times`): the article's `lastModified` when Neneko first
 delivers it, moved where needed so times rise with item ID (one second apart where possible,
 since the Kobo keeps seconds and breaks ties by title), and kept through later read/unread
-changes and removals. Both timestamps are that time, so "Recent" and "Date added" follow
+changes and removals. Since 0.2.1-dev.9 `Created`,
+`PriorityTimestamp` and the three `LastModified` are all that time (dev.8 sent it only as
+`PriorityTimestamp`, so the other three, the delivery time, won: seen on the device as 100
+articles with one `DateLastRead`, sorted by title). So "Recent" and "Date added" follow
 Nextcloud's order; `PriorityTimestamp` becomes the time the article was last opened once the
 Kobo reports reading it. (0.2.1-dev.7 sent `lastModified` directly, which moved articles marked
 unread again to the top.) This only affects books new to the Kobo: `updateVolume` never moves

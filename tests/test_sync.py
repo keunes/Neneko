@@ -406,9 +406,14 @@ def test_new_books_come_with_a_reading_state(make_kobo, news):
     assert state["EntitlementId"] == entry["BookEntitlement"]["Id"]
     assert state["StatusInfo"]["Status"] == "ReadyToRead"
     assert state["StatusInfo"]["TimesStartedReading"] == 0
-    assert state["LastModified"] == state["StatusInfo"]["LastModified"] == state["CurrentBookmark"]["LastModified"]
     # The sort times are the article's arrival in Nextcloud (see the next test).
-    assert state["Created"] == state["PriorityTimestamp"] == entry["BookEntitlement"]["Created"]
+    assert state["Created"] == kobo_recent(state) == entry["BookEntitlement"]["Created"]
+
+
+def kobo_recent(state: dict) -> str:
+    """The Kobo's DateLastRead for a new book: the latest of these four (ReadingStateParser)."""
+    return max(state["PriorityTimestamp"], state["StatusInfo"]["LastModified"],
+               state["Statistics"]["LastModified"], state["CurrentBookmark"]["LastModified"])
 
 
 def test_kobo_sorts_like_nextcloud_across_pages(make_kobo, news):
@@ -422,7 +427,7 @@ def test_kobo_sorts_like_nextcloud_across_pages(make_kobo, news):
     entries = {e["BookEntitlement"]["Id"]: e for e in entitlements(results, "NewEntitlement")}
     newest_first = [entries[uuid_of(kobo, item["id"])] for item in reversed(items)]
     created = [e["BookEntitlement"]["Created"] for e in newest_first]
-    recent = [e["ReadingState"]["PriorityTimestamp"] for e in newest_first]
+    recent = [kobo_recent(e["ReadingState"]) for e in newest_first]
     assert created == recent == sorted(created, reverse=True) and len(set(created)) == 12
     assert created[-1] == "2026-09-21T14:13:20Z"  # the oldest article's own time
 
