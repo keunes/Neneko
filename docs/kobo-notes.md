@@ -78,6 +78,9 @@ With Neneko 0.2.1-dev.5 and dev.6 (firmware 4.38.23828, 25 October 2026):
 
 How to watch the Kobo's own log during a Sync: [kobo-debugging.md](kobo-debugging.md).
 
+To remove all Neneko articles from the Kobo (a fresh start), use
+[`tools/kobo/clear_neneko.py`](../tools/kobo/README.md).
+
 To look at what the Kobo stored, connect it over USB and copy `.kobo/KoboReader.sqlite` off it
 first (don't query the file on the Kobo itself). Neneko's articles are the `content` rows with
 `ContentType = 6` whose `ContentID` starts with the first part of any Neneko book ID (the

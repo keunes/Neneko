@@ -204,18 +204,22 @@ are removed.
 - `NENEKO_LOG_LEVEL=DEBUG` logs every step. The Kobo token is masked in the logs.
 - To see what the Kobo itself does during a Sync (which books it downloads, which requests
   fail), see [`docs/kobo-debugging.md`](docs/kobo-debugging.md).
+- **Starting over** (all Neneko articles off the Kobo, Neneko's database cleared): see
+  [`tools/kobo/README.md`](tools/kobo/README.md). Removing articles through a sync isn't
+  enough, because the Kobo then won't download them by itself when they come back.
 
 ## Versions
 
 The version lives in one place, `src/neneko/__init__.py`. Image tags on `ghcr.io/keunes/neneko`:
 
 - `latest`: the newest stable release;
-- `0.2.1`, `0.2.1-dev.1`, …: one tag per release, never changed afterwards;
-- `main`: the current development state.
+- `latest-dev`: the newest release of any kind, including pre-releases such as `0.2.1-dev.8`;
+- `0.2.1`, `0.2.1-dev.1`, …: one tag per release, never changed afterwards.
 
-To release, change `__version__` and push to `main`. CI then tags the image with the new version
-and creates a GitHub release; versions with a suffix such as `-dev.1` become pre-releases and
-don't move `latest`.
+An image is built only for a new version: change `__version__` and push to `main`. CI then
+builds and tags the image and creates a GitHub release; versions with a suffix such as `-dev.1`
+become pre-releases and don't move `latest`. Other pushes only run the tests, and pushes that
+only change docs, `tools/` or this README don't start CI at all.
 
 ## Development
 
