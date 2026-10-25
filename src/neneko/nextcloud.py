@@ -11,6 +11,15 @@ TYPE_FOLDER = 1
 TYPE_ALL = 3
 
 
+def modified_at(item: dict) -> float:
+    """An item's lastModified as a Unix time (older News versions send seconds, newer microseconds)."""
+    try:
+        value = float(item.get("lastModified") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return value / 1_000_000 if value > 100_000_000_000 else value
+
+
 class NextcloudError(Exception):
     """kind: dns, connect, timeout, auth, untrusted_domain, not_found, http or bad_response."""
 

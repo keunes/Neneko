@@ -159,6 +159,36 @@ the old row, and it isn't downloaded either. Removing and re-sending a book ther
 a download. Only a different book ID would; Neneko's IDs are fixed per article on purpose (see
 `src/neneko/ids.py`), so these articles download when tapped.
 
+### How the library sorts
+
+The library's sort menu maps to `AbstractLibraryBuilder::sortBy…`. For store books (all of
+Neneko's articles; sideloaded books use other fields):
+
+- **Recent** (`sortByNewest`, `RecentPrimarySorter` / `RecentSecondarySorter`): by
+  `DateLastRead` (`RecentKey`), newest first. Nickel sets `DateLastRead` from the sync's
+  `ReadingState.PriorityTimestamp` when that is later than what the book has
+  (`ReadingState::updateVolume`), and to the current time when the book is opened. So for an
+  article that was never opened, "Recent" is the `PriorityTimestamp` the server sent.
+- **Date added** (`sortByDateAdded`, oldest first with `sortByDateAddedOldest`): by the
+  entitlement's `Created` date (`Volume::getDateAddedSortKey` →
+  `EntitlementManager::getCreatedRaw`), i.e. `BookEntitlement.Created` from the sync.
+- Books with the same key are ordered by title and subtitle (both sorts add a
+  `TitleSubtitleSorter` / `SeriesOnlySorter` tie-break).
+
+The order in which the server lists books in a response doesn't matter for either sort; only
+these two timestamps do. Neneko (up to 0.2.1-dev.6) sends the delivery time as both, so all
+articles of one sync page share a time, sorted by title within the page, and later pages sort
+as newer. Seen on the device: a 29-page Sync gave 29 distinct `DateLastRead` values, and because
+Neneko sends the newest articles first, the oldest articles came out on top of "Recent" (and
+"Date added").
+
+Since 0.2.1-dev.7 both timestamps are the article's arrival in Nextcloud News: its
+`lastModified`, which follows Nextcloud's newest-first order (by item ID) unless the article
+changed there since, e.g. was marked unread again (it then sorts as just arrived).
+`PriorityTimestamp` becomes the time the article was last opened once the Kobo reports reading
+it. This only affects books new to the Kobo: `updateVolume` never moves `DateLastRead`
+backwards, so articles already on it keep their old order.
+
 ### What Neneko does with this
 
 - New articles go out a page at a time (`NENEKO_NEW_PER_SYNC_PAGE`, default 5), and every sync

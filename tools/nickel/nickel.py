@@ -97,6 +97,8 @@ class Library:
                 slot = address + 8 + _arm_immediate(stub[0]) + _arm_immediate(stub[1]) + stub[2].operands[1].mem.disp
                 names[address] = "PLT:" + got.get(slot, hex(slot))
                 funcs.append((address, names[address]))
+                if self.read(address - 4, 4) == b"\x78\x47\xc0\x46":  # Thumb stub: bx pc; nop
+                    names[address - 4] = names[address]
                 address += 12
             else:
                 address += 4

@@ -11,7 +11,7 @@ from .config import Settings
 from .ids import item_uuid, tag_uuid
 from .kobo import payloads
 from .kobo.synctoken import SyncToken
-from .nextcloud import NewsClient, NextcloudError
+from .nextcloud import NewsClient, NextcloudError, modified_at
 from .state import State
 
 log = logging.getLogger(__name__)
@@ -19,15 +19,6 @@ log = logging.getLogger(__name__)
 KOBO_STATUSES = {"ReadyToRead", "Reading", "Finished"}
 FORGET_REMOVED_AFTER = 30 * 86400
 SYNC_BUILD_WAIT = 10  # seconds a sync waits for new articles to be built
-
-
-def _modified_at(item: dict) -> float:
-    """An item's lastModified as a Unix time (older News versions send seconds, newer microseconds)."""
-    try:
-        value = float(item.get("lastModified") or 0)
-    except (TypeError, ValueError):
-        return 0.0
-    return value / 1_000_000 if value > 100_000_000_000 else value
 
 
 @dataclass
@@ -198,7 +189,7 @@ class SyncEngine:
             # An article removed on the Kobo comes back only if it changed in Nextcloud since
             # (e.g. marked unread again); until then it is just Neneko's own mark-read on its way.
             candidates |= {item_id for item_id, item in by_id.items() if item_id not in active
-                           and (item_id not in dismissed or _modified_at(item) > dismissed[item_id])}
+                           and (item_id not in dismissed or modified_at(item) > dismissed[item_id])}
             slots = max(0, settings.max_items - len(keep_always))
             chosen = sorted(candidates, reverse=True)[:slots]
             target = set(chosen) | keep_always | keep_finished

@@ -98,6 +98,8 @@ You need Docker (with Compose), Nextcloud with the News app, and a Kobo on the s
   (they are already built). How the Kobo decides is in
   [`docs/kobo-notes.md`](docs/kobo-notes.md#how-nickel-syncs-and-downloads-firmware-43823828);
   for one refresh per Sync see [Fewer refreshes during a Sync](#fewer-refreshes-during-a-sync).
+- In the Kobo library, "Recent" and "Date added" list articles in Nextcloud's order (newest
+  arrival first); an article you open moves to the top of "Recent".
 - Articles marked read elsewhere (web, phone app) are removed at the next sync.
 - Deleting an article on the Kobo marks it read in Nextcloud (or only forgets it, see
   `NENEKO_DELETE_ACTION`) and it isn't sent again, unless you mark it unread in Nextcloud:

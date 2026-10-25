@@ -58,6 +58,7 @@ Reading the output:
 | After the last page | `dis 'LibraryNextPageCommand::lastPageParsed' --calls` | `retrieveSyncedBooks`, then `getBooks` |
 | Known books aren't downloaded again | `dis 'LibraryNextPageCommand::canDownload'`, `dis 'VolumeManager::shouldRedownload'` | `ldrb ... #0x188` (set in `handleBook` from `shouldRedownload`); `getById`, then `isFullBookAccessible` / `hasDownloadUrl` compared |
 | One sync time per sync | `dis 'LibraryNextPageCommand::initializeSync' --calls`, `dis 'ResolveEntitlementUpdatesCommand::handleBook' --calls` | `getSyncTime` → `setLibrarySyncTime`, and `setSyncTime` on each book |
+| Library sorting | `dis 'RecentKey<Volume>::key'`, `dis 'ReadingState::updateVolume' --calls`, `dis 'Volume::getDateAddedSortKey' --calls` | `DateLastRead` at `[d, #0x28]`; `setDateLastRead` from `priorityTimestamp` (`[r5, #0xc]`); `EntitlementManager::getCreatedRaw` |
 | Where the setting lives | `dis 'FeatureSettings::sectionName'` | an address holding a length (15) and a pointer to the text `FeatureSettings` |
 
 The notes were made from firmware 4.38.23828.

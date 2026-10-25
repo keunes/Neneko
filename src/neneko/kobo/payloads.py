@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 
 from ..builder.sanitize import plain_excerpt
+from ..nextcloud import modified_at
 
 GENERIC_CATEGORY = "00000000-0000-0000-0000-000000000001"
 
@@ -13,12 +14,21 @@ def timestamp(value: float | int | None = None) -> str:
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def arrival(row: dict) -> float | None:
+    """When the article arrived in Nextcloud News: its lastModified, unless it changed there since
+    (e.g. marked unread again). The Kobo sorts "Date added" by the entitlement's Created and
+    "Recent" by the reading state's PriorityTimestamp, so sending this keeps Nextcloud's
+    newest-first order instead of grouping articles by sync page (docs/kobo-notes.md)."""
+    item = json.loads(row["item_json"]) if row.get("item_json") else {}
+    return modified_at(item) or row.get("delivered_at")
+
+
 def entitlement(row: dict, *, removed: bool) -> dict:
     uuid = row["uuid"]
     return {
         "Accessibility": "Full",
         "ActivePeriod": {"From": timestamp()},
-        "Created": timestamp(row.get("delivered_at")),
+        "Created": timestamp(arrival(row)),
         "CrossRevisionId": uuid,
         "Id": uuid,
         "IsRemoved": removed,
@@ -80,9 +90,10 @@ def reading_state(row: dict) -> dict:
     modified = timestamp(row.get("state_at") or row.get("delivered_at"))
     return {
         "EntitlementId": row["uuid"],
-        "Created": timestamp(row.get("delivered_at")),
+        "Created": timestamp(arrival(row)),
         "LastModified": modified,
-        "PriorityTimestamp": modified,
+        # Becomes the Kobo's DateLastRead until the article is opened ("Recent" sorts by it).
+        "PriorityTimestamp": timestamp(row.get("state_at") or arrival(row)),
         "StatusInfo": status_info,
         "Statistics": {"LastModified": modified, **statistics},
         "CurrentBookmark": {"LastModified": modified, **bookmark},

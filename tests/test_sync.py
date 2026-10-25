@@ -406,8 +406,25 @@ def test_new_books_come_with_a_reading_state(make_kobo, news):
     assert state["EntitlementId"] == entry["BookEntitlement"]["Id"]
     assert state["StatusInfo"]["Status"] == "ReadyToRead"
     assert state["StatusInfo"]["TimesStartedReading"] == 0
-    assert state["Created"] == state["LastModified"] == state["PriorityTimestamp"] \
-        == state["StatusInfo"]["LastModified"] == state["CurrentBookmark"]["LastModified"]
+    assert state["LastModified"] == state["StatusInfo"]["LastModified"] == state["CurrentBookmark"]["LastModified"]
+    # The sort times are the article's arrival in Nextcloud (see the next test).
+    assert state["Created"] == state["PriorityTimestamp"] == entry["BookEntitlement"]["Created"]
+
+
+def test_kobo_sorts_like_nextcloud_across_pages(make_kobo, news):
+    # "Recent" sorts by PriorityTimestamp, "Date added" by Created: both must follow Nextcloud's
+    # arrival order, not the sync page an article came on.
+    start = 1_790_000_000
+    items = [news.add_item(51, lastModified=(start + n * 60) * 1_000_000) for n in range(12)]
+    kobo = make_kobo()
+    results = kobo.sync()
+    assert len(kobo.responses) == 3
+    entries = {e["BookEntitlement"]["Id"]: e for e in entitlements(results, "NewEntitlement")}
+    newest_first = [entries[uuid_of(kobo, item["id"])] for item in reversed(items)]
+    created = [e["BookEntitlement"]["Created"] for e in newest_first]
+    recent = [e["ReadingState"]["PriorityTimestamp"] for e in newest_first]
+    assert created == recent == sorted(created, reverse=True) and len(set(created)) == 12
+    assert created[-1] == "2026-09-21T14:13:20Z"  # the oldest article's own time
 
 
 def test_sync_reports_the_real_file_size(make_kobo, news, monkeypatch):
