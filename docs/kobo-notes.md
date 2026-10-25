@@ -15,11 +15,22 @@ With calibre-web as the stand-in store (firmware 4.38.23697 and 4.38.23828):
 - The store's `initialization` response contains `instapaper_enabled` and `instapaper_env_url`;
   Neneko passes them through unchanged.
 
-With Neneko 0.2.1-dev.5 (firmware 4.38.23828, 25 October 2026):
+With Neneko 0.2.1-dev.5 and dev.6 (firmware 4.38.23828, 25 October 2026):
 
 - Pages of 5 new articles, each response with `x-kobo-recent-reads: 5`: 16 new articles came in
   4 pages and all were downloaded without tapping. Each page's downloads finished before the
   Kobo asked for the next page.
+- After raising `NENEKO_MAX_ITEMS`, one Sync delivered 141 articles in 29 pages. The Kobo
+  downloaded 105; the other 36 were articles Neneko had removed from the Kobo before and that
+  came back into the window. Checked in the Kobo's database (`.kobo/KoboReader.sqlite`, table
+  `content`):
+  - A removed book isn't deleted: its row stays, with `___UserID` set to `removed`. 12 such rows
+    were left, and Neneko's ledger had held 48 removed rows before the Sync (36 + 12).
+  - The skipped rows differ from the downloaded ones only in what downloading changes
+    (`IsDownloaded`, `IsEncrypted`, `NumShortcovers`).
+  - All 141 rows have the same `___SyncTime`: one sync time for the whole Sync.
+- The Kobo's "downloading book x of y" counts across the whole Sync: every page adds its books to
+  one download queue, so y grows from page to page.
 
 ## Observed with Neneko
 
@@ -66,6 +77,16 @@ With Neneko 0.2.1-dev.5 (firmware 4.38.23828, 25 October 2026):
   (a 404 made the Kobo log an error each time).
 
 How to watch the Kobo's own log during a Sync: [kobo-debugging.md](kobo-debugging.md).
+
+To look at what the Kobo stored, connect it over USB and copy `.kobo/KoboReader.sqlite` off it
+first (don't query the file on the Kobo itself). Neneko's articles are the `content` rows with
+`ContentType = 6` whose `ContentID` starts with the first part of any Neneko book ID (the
+`/download/<id>/` part of a download line in Neneko's log):
+
+```sh
+sqlite3 KoboReader.sqlite "SELECT ___UserID = 'removed', IsDownloaded, count(*) FROM content
+  WHERE ContentType = 6 AND ContentID LIKE '<first 23 characters of a Neneko book ID>%' GROUP BY 1, 2"
+```
 
 ## How Nickel syncs and downloads (firmware 4.38.23828)
 
@@ -130,8 +151,13 @@ on. `shouldRedownload` compares the incoming book with the one the Kobo already 
 
 So sending a known, undownloaded book again (same download URL) changes nothing: it is saved and
 skipped. Seen on the device with 0.2.1-dev.5's re-offering (40 articles, none downloaded).
-Removing a book (`IsRemoved`) and sending it as new afterwards should make it a new book again,
-but that hasn't been tried.
+
+Removing a book doesn't make it unknown: `IsRemoved` keeps the book's row in the Kobo's
+database, with `___UserID` = `removed` (seen on the device). So an article that comes back
+after a removal (marked unread again, back in a larger window) has the same ID, `getById` finds
+the old row, and it isn't downloaded either. Removing and re-sending a book therefore can't force
+a download. Only a different book ID would; Neneko's IDs are fixed per article on purpose (see
+`src/neneko/ids.py`), so these articles download when tapped.
 
 ### What Neneko does with this
 
@@ -143,8 +169,8 @@ but that hasn't been tried.
   one response: fewer library refreshes, but the Kobo store and notebooks use the same limit.
   See the README, "Fewer refreshes during a Sync".
 - Collections are sent once per Sync, on its last page.
-- Articles the Kobo lists but never downloaded aren't offered again (see above); they download
-  when tapped.
+- Articles the Kobo lists but never downloaded aren't offered again, and articles that come back
+  after a removal aren't downloaded by themselves (see above); both download when tapped.
 
 ### Still open
 
@@ -159,7 +185,8 @@ but that hasn't been tried.
 - `GET /v1/initialization` returns `Resources`; Neneko rewrites `library_sync`, `image_host`,
   `image_url_template` and `image_url_quality_template` and sends `x-kobo-apitoken: e30=`.
 - `GET /v1/library/sync` returns a JSON list of `NewEntitlement`, `ChangedEntitlement`
-  (`BookEntitlement.IsRemoved` removes a book), `NewTag`, `ChangedTag`, `DeletedTag`. The
+  (`BookEntitlement.IsRemoved` removes a book from the library; its row stays in the Kobo's
+  database with `___UserID` = `removed`), `NewTag`, `ChangedTag`, `DeletedTag`. The
   `x-kobo-synctoken` response header is stored by the Kobo and sent back next time;
   `x-kobo-sync: continue` makes the Kobo ask again straight away; `x-kobo-recent-reads: N` makes it
   download up to N books of that page (see above).
