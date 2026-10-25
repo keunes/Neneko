@@ -74,14 +74,19 @@ def test_settings_reject_weak_token(monkeypatch):
         Settings()
 
 
-def test_sync_token_keeps_the_page_session():
-    # The format 0.2.1-dev.1 used, and again since dev.5.
+def test_page_size_can_cover_a_whole_sync():
+    base = dict(nc_url="https://x", nc_user="u", nc_app_password="p", public_url="http://pi",
+                kobo_token="abcdefghijklmnop_1234")
+    assert Settings(**base, new_per_sync_page=500).new_per_sync_page == 500
+    with pytest.raises(ValueError):
+        Settings(**base, new_per_sync_page=501)
+
+
+def test_sync_token_from_a_re_offering_version_still_parses():
+    # 0.2.1-dev.1 and dev.5 kept a page session in the token.
     old = base64.b64encode(json.dumps(
         {"neneko": 1, "epoch": "e", "gen": 3, "store": "", "session": 2, "resend_below": 1104}).encode()).decode()
-    assert SyncToken.parse(old) == SyncToken(epoch="e", gen=3, session=2, resend_below=1104)
-    token = SyncToken(epoch="e", gen=4, session=2, resend_below=1100)
-    assert SyncToken.parse(token.serialize()) == token
-    assert "session" not in json.loads(base64.b64decode(SyncToken(epoch="e", gen=5).serialize()))
+    assert SyncToken.parse(old) == SyncToken(epoch="e", gen=3)
 
 
 def test_old_database_is_migrated(tmp_path):
@@ -98,9 +103,8 @@ def test_old_database_is_migrated(tmp_path):
     db.close()
     state = State(path)
     state.ledger_set_downloaded(1)
-    state.ledger_mark_reoffered([1])
     row = state.ledger_get(1)
-    assert row["downloaded_at"] is not None and row["reoffer_count"] == 1
+    assert row["downloaded_at"] is not None and row["reoffer_count"] == 0
 
 
 def test_schema_2_database_gains_reoffer_tracking(tmp_path):

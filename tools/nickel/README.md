@@ -56,6 +56,7 @@ Reading the output:
 | Per-page downloads | `dis 'ResolveEntitlementUpdatesCommand::downloadRecentBooks'` | `maxBooksToDownload`, compared with the header's value (`[r?, #0x24]`) |
 | The cap per call | `dis 'LibraryNextPageCommand::downloadBooks'` | loop that appends while the count is below `maxBooksToDownload` |
 | After the last page | `dis 'LibraryNextPageCommand::lastPageParsed' --calls` | `retrieveSyncedBooks`, then `getBooks` |
+| Known books aren't downloaded again | `dis 'LibraryNextPageCommand::canDownload'`, `dis 'VolumeManager::shouldRedownload'` | `ldrb ... #0x188` (set in `handleBook` from `shouldRedownload`); `getById`, then `isFullBookAccessible` / `hasDownloadUrl` compared |
 | One sync time per sync | `dis 'LibraryNextPageCommand::initializeSync' --calls`, `dis 'ResolveEntitlementUpdatesCommand::handleBook' --calls` | `getSyncTime` → `setLibrarySyncTime`, and `setSyncTime` on each book |
 | Where the setting lives | `dis 'FeatureSettings::sectionName'` | an address holding a length (15) and a pointer to the text `FeatureSettings` |
 

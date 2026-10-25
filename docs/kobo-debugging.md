@@ -59,6 +59,7 @@ Useful lines:
 | Line | Meaning |
 | --- | --- |
 | `LibraryNextPageCommand::downloadBooks(...) "<title>"` | one line per book the Kobo decided to download; since 0.2.1-dev.5 up to 5 per sync page ([why](kobo-notes.md#which-books-it-downloads)) |
+| `downloadBooks(...) already downloaded "<title>"` | after the last page: a book it already has, skipped |
 | `Saved volume "<title>" to ...` | a download finished |
 | `Removing volume "<title>"` | a book left the Kobo (read elsewhere, or out of the window) |
 | `packetdump.warning` | a request that failed, with the full URL |
@@ -69,7 +70,7 @@ grep -nE 'downloadBooks|Saved volume|Removing volume|packetdump.warning' kobo-de
 
 If articles still stay undownloaded, count the `downloadBooks` lines against the pages (one
 `library/sync` request each) and compare the titles with Neneko's log line
-`sync: N new, N re-offered ...` for each page.
+`sync: N new, N changed/removed ...` for each page.
 
 ## 5. Before sharing a log
 

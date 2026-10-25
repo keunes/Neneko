@@ -19,9 +19,6 @@ log = logging.getLogger(__name__)
 KOBO_STATUSES = {"ReadyToRead", "Reading", "Finished"}
 FORGET_REMOVED_AFTER = 30 * 86400
 SYNC_BUILD_WAIT = 10  # seconds a sync waits for new articles to be built
-# How often an article the Kobo never downloaded is offered again. Tracked in the ledger to see
-# whether the limit is ever reached; see docs/kobo-notes.md, "Temporary: re-offer tracking".
-REOFFER_LIMIT = 3
 
 
 def _modified_at(item: dict) -> float:
@@ -264,7 +261,6 @@ class SyncEngine:
             if row["delivered_gen"] > acked:
                 results.append(self._book("NewEntitlement", row))
                 sent.add(row["item_id"])
-                state.ledger_redelivered(row["item_id"], gen)  # delivered in this Sync: not re-offered
             elif row["changed_gen"] > acked:
                 results.append(self._book("ChangedEntitlement", row))
         for row in state.ledger_removed():
@@ -277,35 +273,14 @@ class SyncEngine:
                 self.builder.purge(row["item_id"])
         state.ledger_delete_older_than(now - FORGET_REMOVED_AFTER)
 
-        # Offer articles the Kobo has but never downloaded again, in the room left on this page.
-        # The token tracks one Sync's pages: where it started (articles delivered since can't have
-        # been downloaded yet) and how far the re-offer got.
-        continuing = token.session is not None and token.epoch == epoch
-        session_start = token.session if continuing else gen
-        resend_below = token.resend_below if continuing else None
-        budget = max(settings.new_per_sync_page - sum("NewEntitlement" in r for r in results), 0)
-        undownloaded = [
-            row for row in state.ledger_active()
-            if row["item_id"] not in sent and not row["downloaded_at"] and row["delivered_gen"] <= acked
-            and row["delivered_gen"] < session_start and row["kobo_status"] == "ReadyToRead"
-            and row["reoffer_count"] < REOFFER_LIMIT
-            and (resend_below is None or row["item_id"] < resend_below)
-        ]
-        reoffered = undownloaded[:budget]
-        for row in reoffered:
-            results.append(self._book("NewEntitlement", row))
-            sent.add(row["item_id"])
-        state.ledger_mark_reoffered([row["item_id"] for row in reoffered])
-        if len(undownloaded) > len(reoffered):
-            response.more = True
-        if response.more:
-            response.token.session = session_start
-            response.token.resend_below = reoffered[-1]["item_id"] if reoffered else resend_below
-
         if recovering and window is not None:
             results += await self._recovery_sweep(feeds, folder_names)
 
-        results += self._sync_tags(gen, acked, feeds, folder_names, recovering)
+        # Collections once per Sync, on its last page: every page adds books to them, and the
+        # Kobo takes seconds to apply each change. A Sync cut off before its last page gets them
+        # at the next one. The first page after a database loss also removes stale ones.
+        if not response.more or recovering:
+            results += self._sync_tags(gen, acked, feeds, folder_names, recovering)
 
         if to_build:
             self.builder.enqueue([state.ledger_get(item_id) for item_id in to_build])
@@ -314,8 +289,8 @@ class SyncEngine:
         state.kv_set("last_sync_at", str(now))
         if window is not None:
             state.kv_set("last_sync_error", "")
-        log.info("sync: %d new, %d re-offered (not downloaded yet), %d changed/removed, %d results in total%s",
-                 sum("NewEntitlement" in r for r in results) - len(reoffered), len(reoffered),
+        log.info("sync: %d new, %d changed/removed, %d results in total%s",
+                 sum("NewEntitlement" in r for r in results),
                  len([r for r in results if "ChangedEntitlement" in r]), len(results),
                  " (more to come)" if response.more else "")
         return response

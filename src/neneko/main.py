@@ -63,6 +63,10 @@ def create_app(settings: Settings | None = None, *,
         if start_workers:
             builder.start()
         log.info("Neneko %s ready; Kobo api_endpoint=%s/kobo/<token>", __version__, settings.public_url)
+        if settings.new_per_sync_page > 5:
+            log.info("NENEKO_NEW_PER_SYNC_PAGE=%d: the Kobo needs MaxDownload=%d (or more) under "
+                     "[FeatureSettings] in .kobo/Kobo/Kobo eReader.conf, or it downloads only 5 per page",
+                     settings.new_per_sync_page, settings.new_per_sync_page)
         check_task = asyncio.get_running_loop().create_task(startup_check())
         try:
             yield
@@ -104,7 +108,6 @@ def create_app(settings: Settings | None = None, *,
             ("Last sync", _Time(float(last_sync)) if last_sync else "never"),
             ("Articles on the Kobo", counts["on_kobo"]),
             ("Downloaded by the Kobo", counts["downloaded"]),
-            ("Offered again, never downloaded", counts["reoffered_not_downloaded"]),
             ("Being read", counts["reading"]),
             ("Finished (leaving after the grace period)", counts["finished"]),
             ("Waiting to be sent to Nextcloud", len(outbox)),

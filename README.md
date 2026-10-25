@@ -92,10 +92,12 @@ You need Docker (with Compose), Nextcloud with the News app, and a Kobo on the s
 - Finished articles leave the Kobo after `NENEKO_FINISHED_GRACE_HOURS`, so you can still
   "Mark as unread" for a while.
 - The Kobo downloads at most 5 books per sync page by itself (its `MaxDownload` setting), so
-  Neneko sends new articles 5 at a time and tells the Kobo to download each page. Articles it
-  still hasn't downloaded are offered again at the next Syncs (up to 3 times); you can also tap
-  them, they download instantly (they are already built). *Experimental in 0.2.1-dev.5*; how the
-  Kobo decides is in [`docs/kobo-notes.md`](docs/kobo-notes.md#how-nickel-syncs-and-downloads-firmware-43823828).
+  Neneko sends new articles 5 at a time and tells the Kobo to download each page; the Kobo
+  refreshes its library after each page. Articles that are listed but not downloaded (for
+  example from before 0.2.1-dev.5) show a download icon and download instantly when tapped
+  (they are already built). How the Kobo decides is in
+  [`docs/kobo-notes.md`](docs/kobo-notes.md#how-nickel-syncs-and-downloads-firmware-43823828);
+  for one refresh per Sync see [Fewer refreshes during a Sync](#fewer-refreshes-during-a-sync).
 - Articles marked read elsewhere (web, phone app) are removed at the next sync.
 - Deleting an article on the Kobo marks it read in Nextcloud (or only forgets it, see
   `NENEKO_DELETE_ACTION`) and it isn't sent again, unless you mark it unread in Nextcloud:
@@ -130,7 +132,7 @@ All settings are environment variables.
 | `NENEKO_KOBO_TOKEN` / `_FILE` | (required) | Secret in the Kobo's `api_endpoint`; at least 16 of `A-Z a-z 0-9 - _` |
 | `NENEKO_NC_FOLDERS` | all | Comma-separated News folder names to sync |
 | `NENEKO_MAX_ITEMS` | `50` | Most articles on the Kobo at once |
-| `NENEKO_NEW_PER_SYNC_PAGE` | `5` | New articles per sync response; the Kobo asks for the next page by itself. More than 5 only helps if `MaxDownload` in the Kobo's `[FeatureSettings]` is raised |
+| `NENEKO_NEW_PER_SYNC_PAGE` | `5` | New articles per sync response (up to 500); the Kobo asks for the next page by itself. More than 5 needs `MaxDownload` raised on the Kobo, see [Fewer refreshes during a Sync](#fewer-refreshes-during-a-sync) |
 | `NENEKO_MARK_READ_ON` | `opened` | When an article is marked read in Nextcloud: `opened` (as soon as you open it on the Kobo), `finished`, or `delivered` (as soon as it reaches the Kobo) |
 | `NENEKO_FINISHED_GRACE_HOURS` | `24` | How long finished articles stay on the Kobo |
 | `NENEKO_DELETE_ACTION` | `mark_read` | Deleting on the Kobo: `mark_read` or `forget` |
@@ -157,6 +159,22 @@ The dithering is a port of Calibre's "Upload dithered covers" option (ImageMagic
 ordered dither), verified pixel-identical against Calibre's own output (`tests/test_images.py`). It suits covers, which the Kobo shows at their exact size; article
 images get rescaled by the reader, which can make a dither pattern look grainy, so it is off by
 default for those.
+
+### Fewer refreshes during a Sync
+
+By default a Sync with many new articles comes in pages of 5, because the Kobo downloads at most
+5 books per page by itself. It refreshes its library after each page. To get everything in one
+go, raise that limit on the Kobo and make Neneko's page as large:
+
+1. Connect the Kobo over USB and open `.kobo/Kobo/Kobo eReader.conf` in a text editor.
+2. Under `[FeatureSettings]` (add the section if it isn't there), add `MaxDownload=50`, matching
+   `NENEKO_MAX_ITEMS`.
+3. Eject the Kobo and restart it.
+4. Set `NENEKO_NEW_PER_SYNC_PAGE=50` and restart Neneko.
+
+The same limit also applies to books from the Kobo store and to notebooks, which then download
+up to 50 at a time too. *Not tried on a device yet*; if only 5 articles download per Sync, the
+Kobo didn't take the setting, and `NENEKO_NEW_PER_SYNC_PAGE` should go back to 5.
 
 ## Data
 

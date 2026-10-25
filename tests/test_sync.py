@@ -333,6 +333,15 @@ def test_page_size_is_configurable(make_kobo, news):
     assert {r.headers["x-kobo-recent-reads"] for r in kobo.responses} == {"3"}
 
 
+def test_one_page_per_sync_with_a_large_page(make_kobo, news):
+    for _ in range(12):
+        news.add_item(51)
+    kobo = make_kobo(new_per_sync_page=50)  # for a Kobo with MaxDownload raised
+    kobo.sync()
+    assert new_per_page(kobo) == [12]
+    assert kobo.responses[0].headers["x-kobo-recent-reads"] == "50"
+
+
 def test_resent_books_count_towards_the_page(make_kobo, news):
     for _ in range(8):
         news.add_item(51)
@@ -342,73 +351,26 @@ def test_resent_books_count_towards_the_page(make_kobo, news):
     results = kobo.sync()
     assert max(new_per_page(kobo)) <= 5
     offered = ids_of(results, "NewEntitlement")
-    assert len(offered) == len(set(offered)) == 8  # the lost ones again, but not re-offered as well
+    assert len(offered) == len(set(offered)) == 8
 
 
-def test_undownloaded_articles_are_offered_again_page_by_page(make_kobo, news):
-    items = [news.add_item(51) for _ in range(12)]
-    kobo = make_kobo()  # 5 per page
-    first = kobo.sync(download=0)  # the Kobo lists them but downloads none
-    assert len(ids_of(first, "NewEntitlement")) == 12 and kobo.pages == 3
-
-    kobo.pages = 0
-    again = kobo.sync(download=5)
-    # Next Sync: all 12 offered again, 5 per page, newest first, each once.
-    assert ids_of(again, "NewEntitlement") == [uuid_of(kobo, i["id"]) for i in reversed(items)]
-    assert kobo.pages == 3
-
-    downloaded = {uuid_of(kobo, i["id"]) for i in reversed(items[-5:])}
-    third = kobo.sync(download=0)
-    offered = ids_of(third, "NewEntitlement")
-    assert len(offered) == 7 and not downloaded & set(offered)
-
-
-def test_new_articles_in_this_sync_are_not_offered_twice(make_kobo, news):
-    old = [news.add_item(51) for _ in range(3)]
+def test_undownloaded_articles_are_not_offered_again(make_kobo, news):
+    # The Kobo wouldn't download a book it already lists (docs/kobo-notes.md, shouldRedownload).
+    news.add_item(51)
     kobo = make_kobo()
     kobo.sync(download=0)
-    fresh = [news.add_item(51) for _ in range(6)]
-    results = kobo.sync(download=0)
-    offered = ids_of(results, "NewEntitlement")
-    assert len(offered) == len(set(offered)) == 9  # 6 new + 3 re-offered, nothing twice
-    assert set(offered) == {uuid_of(kobo, i["id"]) for i in old + fresh}
-
-
-def test_opened_articles_are_not_offered_again(make_kobo, news):
-    item = news.add_item(51)
-    kobo = make_kobo()
-    kobo.sync(download=0)
-    kobo.put_state(uuid_of(kobo, item["id"]), "Reading")
     assert ids_of(kobo.sync(), "NewEntitlement") == []
 
 
-def test_reoffering_stops_after_the_limit(make_kobo, news):
-    item = news.add_item(51)
+def test_collections_are_sent_once_per_sync(make_kobo, news):
+    for _ in range(12):
+        news.add_item(51)
     kobo = make_kobo()
-    kobo.sync(download=0)
-    for _ in range(3):
-        assert ids_of(kobo.sync(download=0), "NewEntitlement") == [uuid_of(kobo, item["id"])]
-    assert kobo.sync(download=0) == []
-    row = kobo.ctx.state.ledger_get(item["id"])
-    assert row["reoffer_count"] == 3 and row["last_reoffered_at"] is not None
-    assert kobo.ctx.state.ledger_counts()["reoffered_not_downloaded"] == 1
-
-
-def test_reoffered_articles_are_kept_for_the_check(make_kobo, news):
-    reoffered, plain = news.add_item(51), news.add_item(51)
-    kobo = make_kobo()
-    kobo.sync(download=1)  # newest first: `plain` is downloaded, `reoffered` isn't
     kobo.sync()
-    for item in (reoffered, plain):
-        news.set_read(item["id"])
-    kobo.sync()
-    state = kobo.ctx.state
-    state._exec("UPDATE ledger SET removed_at = ?", (time.time() - 40 * 86400,))
-    kobo.sync()
-    assert state.ledger_get(plain["id"]) is None
-    row = state.ledger_get(reoffered["id"])
-    assert row["reoffer_count"] == 1 and row["downloaded_at"] is not None
-    assert state.ledger_counts()["reoffered_not_downloaded"] == 0
+    with_tags = [i for i, r in enumerate(kobo.responses)
+                 if any(key in entry for entry in r.json() for key in ("NewTag", "ChangedTag", "DeletedTag"))]
+    assert len(kobo.responses) == 3 and with_tags == [2]
+    assert len(tags(kobo.responses[-1].json())["Neneko"]["Items"]) == 12
 
 
 def test_article_being_read_is_not_replaced_when_it_changes(make_kobo, news):

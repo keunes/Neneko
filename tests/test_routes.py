@@ -169,6 +169,5 @@ def test_status_page(make_kobo, sample):
     kobo.sync()
     page = kobo.client.get("/").text
     assert "Articles on the Kobo" in page
-    assert "Offered again, never downloaded" in page
     assert '<time datetime="' in page and " UTC</time>" in page  # shown in the browser's time zone
     assert TOKEN not in page
