@@ -1,7 +1,7 @@
 # Add this service to your existing docker-compose.yml.
 services:
   neneko:
-    image: ghcr.io/keunes/neneko:latest     # or build it yourself: build: .
+    image: ghcr.io/keunes/neneko:latest     # latest-dev for pre-releases too; or build it: build: .
     restart: unless-stopped
     ports:
       - "8089:8089"               # the Kobo connects here over your LAN

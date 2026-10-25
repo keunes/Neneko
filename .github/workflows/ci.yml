@@ -1,13 +1,29 @@
 name: CI
 
-# Releases follow __version__ in src/neneko/__init__.py: when a push to main carries a version
-# that has no tag yet, the image gets that version as a tag and a GitHub release is created
-# (a pre-release if the version has a suffix such as -dev.1).
+# Releases follow __version__ in src/neneko/__init__.py: an image is built only when a push to
+# main carries a version that has no tag yet. It is tagged with that version and latest-dev (and
+# latest for versions without a suffix such as -dev.1), and a GitHub release is created (a
+# pre-release for suffixed versions). Changes outside the paths below (docs, tools, README) don't
+# start the workflow at all.
 
 on:
   push:
     branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - ".github/workflows/**"
   pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - ".github/workflows/**"
 
 permissions:
   contents: read
@@ -33,13 +49,9 @@ jobs:
       - name: Test
         run: pytest -q
 
-  image:
-    needs: test
+  version:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     outputs:
       version: ${{ steps.version.outputs.version }}
       new: ${{ steps.version.outputs.new }}
@@ -58,6 +70,16 @@ jobs:
             echo "new=true" >> "$GITHUB_OUTPUT"
           fi
           case "$version" in *-*) echo "prerelease=true" ;; *) echo "prerelease=false" ;; esac >> "$GITHUB_OUTPUT"
+
+  image:
+    needs: [test, version]
+    if: needs.version.outputs.new == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
@@ -70,9 +92,9 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/neneko
           tags: |
-            type=raw,value=main
-            type=raw,value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.new == 'true' }}
-            type=raw,value=latest,enable=${{ steps.version.outputs.new == 'true' && steps.version.outputs.prerelease == 'false' }}
+            type=raw,value=${{ needs.version.outputs.version }}
+            type=raw,value=latest-dev
+            type=raw,value=latest,enable=${{ needs.version.outputs.prerelease == 'false' }}
       - uses: docker/build-push-action@v7
         with:
           context: .
@@ -84,8 +106,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   release:
-    needs: image
-    if: needs.image.outputs.new == 'true'
+    needs: [version, image]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -93,8 +114,8 @@ jobs:
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.image.outputs.version }}
-          PRERELEASE: ${{ needs.image.outputs.prerelease }}
+          VERSION: ${{ needs.version.outputs.version }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
         run: |
           flags=()
           if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
