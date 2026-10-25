@@ -7,3 +7,7 @@ dist/
 .ruff_cache/
 secrets/
 data/
+# Kobo files for tools/nickel: never commit them
+*.so
+*.so.*
+nickel-*.txt

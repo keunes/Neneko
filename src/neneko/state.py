@@ -11,7 +11,7 @@ import threading
 import time
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS kv (
@@ -43,7 +43,9 @@ CREATE TABLE IF NOT EXISTS ledger (
     state_at REAL,
     nc_read_by_neneko INTEGER NOT NULL DEFAULT 0,
     dismissed INTEGER NOT NULL DEFAULT 0,
-    downloaded_at REAL
+    downloaded_at REAL,
+    reoffer_count INTEGER NOT NULL DEFAULT 0,
+    last_reoffered_at REAL
 );
 CREATE TABLE IF NOT EXISTS outbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,6 +83,9 @@ class State:
             self._db.executescript(SCHEMA)
             if 0 < version < 2:
                 self._db.execute("ALTER TABLE ledger ADD COLUMN downloaded_at REAL")
+            if 0 < version < 3:
+                self._db.execute("ALTER TABLE ledger ADD COLUMN reoffer_count INTEGER NOT NULL DEFAULT 0")
+                self._db.execute("ALTER TABLE ledger ADD COLUMN last_reoffered_at REAL")
             self._db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     def close(self) -> None:
@@ -163,7 +168,7 @@ class State:
                 removed_at = NULL, removed_gen = 0, kobo_status = 'ReadyToRead',
                 status_at = NULL, finished_at = NULL, bookmark_json = NULL,
                 statistics_json = NULL, state_at = NULL, nc_read_by_neneko = 0, dismissed = 0,
-                downloaded_at = NULL
+                downloaded_at = NULL, reoffer_count = 0, last_reoffered_at = NULL
             """,
             {
                 "item_id": item["id"], "uuid": uuid, "feed_id": item.get("feedId"),
@@ -185,6 +190,18 @@ class State:
     def ledger_set_downloaded(self, item_id: int) -> None:
         self._exec("UPDATE ledger SET downloaded_at = ? WHERE item_id = ? AND downloaded_at IS NULL",
                    (time.time(), item_id))
+
+    def ledger_redelivered(self, item_id: int, gen: int) -> None:
+        """A new book sent again because the Kobo didn't acknowledge it."""
+        self._exec("UPDATE ledger SET delivered_gen = ? WHERE item_id = ?", (gen, item_id))
+
+    def ledger_mark_reoffered(self, item_ids: list[int]) -> None:
+        now = time.time()
+        with self._lock:
+            self._db.executemany(
+                "UPDATE ledger SET reoffer_count = reoffer_count + 1, last_reoffered_at = ? WHERE item_id = ?",
+                [(now, item_id) for item_id in item_ids],
+            )
 
     def ledger_set_size(self, item_id: int, size: int) -> None:
         self._exec("UPDATE ledger SET size = ? WHERE item_id = ?", (size, item_id))
@@ -215,8 +232,12 @@ class State:
         self._exec("UPDATE ledger SET item_json = NULL WHERE item_id = ?", (item_id,))
 
     def ledger_delete_older_than(self, cutoff: float) -> int:
+        # Rows that were offered again are kept (temporary, added in 0.2.1-dev.5): they show whether
+        # the re-offer limit is ever reached. What to check before removing this: docs/kobo-notes.md,
+        # "Temporary: re-offer tracking".
         return self._exec(
-            "DELETE FROM ledger WHERE removed_at IS NOT NULL AND removed_at < ?", (cutoff,)
+            "DELETE FROM ledger WHERE removed_at IS NOT NULL AND removed_at < ? AND reoffer_count = 0",
+            (cutoff,),
         ).rowcount
 
     def ledger_set_read_by_neneko(self, item_id: int, value: bool) -> None:
@@ -254,7 +275,8 @@ class State:
             "SUM(removed_at IS NULL) AS on_kobo, "
             "SUM(removed_at IS NULL AND kobo_status = 'Reading') AS reading, "
             "SUM(removed_at IS NULL AND kobo_status = 'Finished') AS finished, "
-            "SUM(removed_at IS NULL AND downloaded_at IS NOT NULL) AS downloaded "
+            "SUM(removed_at IS NULL AND downloaded_at IS NOT NULL) AS downloaded, "
+            "SUM(reoffer_count > 0 AND downloaded_at IS NULL) AS reoffered_not_downloaded "
             "FROM ledger"
         )
         return {key: row[key] or 0 for key in row}

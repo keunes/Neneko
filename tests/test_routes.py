@@ -60,13 +60,17 @@ def test_store_results_are_merged(make_kobo, sample):
     def store(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/library/sync":
             assert request.headers.get("x-kobo-synctoken") == ""
-            return httpx.Response(200, json=[store_book], headers={"x-kobo-synctoken": "next.store"})
+            return httpx.Response(200, json=[store_book], headers={
+                "x-kobo-synctoken": "next.store", "x-kobo-sync-mode": "full", "x-kobo-recent-reads": "1"})
         return fake_store(request)
 
     kobo = make_kobo(store_proxy=True, store=store)
     results = kobo.sync()
     assert store_book in results
     assert len(entitlements(results, "NewEntitlement")) == len(ITEMS) + 1
+    last = kobo.responses[-1]
+    assert last.headers["x-kobo-sync-mode"] == "full"  # passed through
+    assert last.headers["x-kobo-recent-reads"] == "5"  # Neneko's, so the whole page is downloaded
 
 
 def test_unknown_requests_go_to_the_store(make_kobo):
@@ -165,5 +169,6 @@ def test_status_page(make_kobo, sample):
     kobo.sync()
     page = kobo.client.get("/").text
     assert "Articles on the Kobo" in page
+    assert "Offered again, never downloaded" in page
     assert '<time datetime="' in page and " UTC</time>" in page  # shown in the browser's time zone
     assert TOKEN not in page

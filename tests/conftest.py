@@ -66,6 +66,7 @@ class Kobo:
         self.client = client
         self.token: str | None = None
         self.pages = 0
+        self.responses: list[httpx.Response] = []  # the pages of the last sync()
 
     def url(self, path: str) -> str:
         return f"/kobo/{TOKEN}{path}"
@@ -74,11 +75,13 @@ class Kobo:
         """One press of Sync: follows "continue" pages. Afterwards the Kobo downloads `download`
         of the offered books (all by default), recorded as a download request would."""
         results = []
+        self.responses = []
         while True:
             headers = {"x-kobo-synctoken": self.token} if self.token else {}
             response = self.client.get(self.url("/v1/library/sync"), headers=headers)
             assert response.status_code == 200, response.text
             self.pages += 1
+            self.responses.append(response)
             results += response.json()
             if keep_token:
                 self.token = response.headers["x-kobo-synctoken"]

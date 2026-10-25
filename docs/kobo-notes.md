@@ -17,25 +17,26 @@ With calibre-web as the stand-in store (firmware 4.38.23697 and 4.38.23828):
 
 ## Observed with Neneko
 
-- The Kobo downloads only a few new books by itself after a sync; the others are listed
-  with a download icon and download when tapped. Repeated Syncs don't change that, because
-  the books are already known.
+- Up to 0.2.1-dev.4 the Kobo downloaded only a few new books by itself after a sync; the
+  others were listed with a download icon and downloaded when tapped. Repeated Syncs didn't
+  change that, because the books were already known. All of it fits what Nickel does when the
+  sync response has no `x-kobo-recent-reads` header (see "How Nickel syncs and downloads"):
+  only the step after the last page downloads anything, at most 5 books, out of those saved
+  by the time it runs.
   - 50 articles in one response: the first 5 were downloaded.
   - 0.2.1-dev.1 sent pages of 5 (`x-kobo-sync: continue`) and offered never-downloaded
     articles again as `NewEntitlement`s: 25 new and 23 re-offered in 10 pages, and only the 3 in
-    the last page were downloaded. So neither helps, and the code was removed again.
+    the last page were downloaded.
   - Only those books' `metadata` and file were requested, so Nickel picks what to download
     before it fetches anything.
-  - 0.2.1-dev.2 matches calibre-web more closely: every `NewEntitlement` carries a
-    `ReadingState` (all timestamps the delivery time) and the sync waits up to 10 s for builds
-    so `DownloadUrls[].Size` is the real file size. `/download` also answers `HEAD`. Still
-    only a few downloads ("downloading x of 5" on the Kobo).
-  - The debug log ([kobo-debugging.md](kobo-debugging.md)) shows the choice being made in
-    `LibraryNextPageCommand::downloadBooks`, one line per chosen book. With 8 new articles it
-    picked 2, with 3 new ones it picked 1, so the cap may count books already on the Kobo.
-  - `libnickel.so` contains `FeatureSettings::maxBooksToDownload()`, a `MaxDownload` string and
-    `ResolveEntitlementUpdatesCommand::downloadRecentBooks`. That suggests a setting
-    `MaxDownload` in the `[FeatureSettings]` section of `Kobo eReader.conf`. **Untested.**
+  - 0.2.1-dev.2 matched calibre-web more closely (a `ReadingState` with every `NewEntitlement`,
+    the real `DownloadUrls[].Size`, `HEAD` on `/download`). No change ("downloading x of 5" on the
+    Kobo): Nickel doesn't choose by these.
+  - The debug log ([kobo-debugging.md](kobo-debugging.md)) showed the choice in
+    `LibraryNextPageCommand::downloadBooks`, one line per chosen book: 2 of 8 new articles, 1 of 3.
+- 0.2.1-dev.5 sends new articles 5 per page with `x-kobo-recent-reads: 5` on every page, and
+  offers never-downloaded ones again (at most 3 times). **To verify on the device**: every
+  article should download without tapping.
 - Articles removed on the Kobo are not sent again, unless they change in Nextcloud
   afterwards (`lastModified` later than the removal), for example when marked unread again.
   Because the removal itself arrives late (see `DELETE` below), an article marked unread since
@@ -56,6 +57,94 @@ With calibre-web as the stand-in store (firmware 4.38.23697 and 4.38.23828):
 
 How to watch the Kobo's own log during a Sync: [kobo-debugging.md](kobo-debugging.md).
 
+## How Nickel syncs and downloads (firmware 4.38.23828)
+
+Read from the Kobo's `libnickel.so.1.0.0` without running it, using the C++ names it exports
+([`tools/nickel/`](../tools/nickel/README.md) has the helper and the commands to check each
+point again after a firmware update). Only the outcome has been seen on a device, not each
+step. Names below are Nickel's.
+
+### One sync, page by page
+
+- `LibraryNextPageCommand` runs the library sync. At the start of a sync (not when resuming
+  one) `initializeSync` sets the user's `librarySyncTime` to the sync's start time
+  (`SyncState::getSyncTime()`). Every page of that sync uses the same time.
+- `LibraryParser::parseHeaders` reads four response headers: `x-kobo-synctoken` (stored),
+  `x-kobo-sync-mode` (`full`), `x-kobo-sync` (`continue`: there are more pages) and
+  `x-kobo-recent-reads` (a number, `numRecentBooksFirst`; 0 when missing).
+- For each page, `onResponseParsed` queues commands for the page's books
+  (`ResolveEntitlementUpdatesCommand`), metadata changes, reading states and tags. Saving a
+  book (`handleBook`) stamps it with `librarySyncTime` (`Content::setSyncTime`).
+- On the last page (no `continue`) `lastPageParsed()` runs, then `librarySyncTime` is cleared.
+  The continuation token is saved after every page.
+
+### Which books it downloads
+
+Two steps choose downloads, and both go through `LibraryNextPageCommand::downloadBooks`:
+
+- **Every page**, after that page's books are saved
+  (`ResolveEntitlementUpdatesCommand::downloadRecentBooks`): n = min(`x-kobo-recent-reads`,
+  `MaxDownload`). With n = 0 (the header is missing) nothing is chosen. With n < 0 the whole page
+  is. Otherwise the first n books of the page, in the order the server sent them; sorting by
+  recency happens only after the cut.
+- **After the last page** (`lastPageParsed` → `VolumeManager::retrieveSyncedBooks`): the books
+  whose sync time equals `librarySyncTime`, sorted by recency. It runs before the last page's own
+  books are saved (their command is only queued by then), so it sees what was saved up to that
+  point. That makes its choice small and hard to predict.
+- `downloadBooks` goes through its list and takes books `canDownload` allows (not downloaded,
+  a supported format, accessible) until it has `MaxDownload` of them. The count starts again at
+  0 for every call. With debug logging on it logs each chosen title. The books go into the saved
+  download queue (`VolumeManager::appendToDownloadQueue`), and `DownloadQueuedBooksCommand`
+  downloads that queue one book at a time, with no limit of its own.
+- Only Kobos with selective sync work like this (`Device::supportsSelectiveSync`: device class
+  2 or 4 and a version check). Others download every book they get.
+- `MaxDownload`: `FeatureSettings::maxBooksToDownload()` reads `MaxDownload` in the
+  `[FeatureSettings]` section of `.kobo/Kobo/Kobo eReader.conf`, default 5 (0 or less: nothing).
+  The same limit applies to Kobo store books and to notebooks
+  (`SyncNotebookCommand::downloadNotebooks`). Raising it should work too, but that hasn't been
+  tried, and Neneko doesn't need it.
+
+### What Neneko does with this
+
+- New articles go out a page at a time (`NENEKO_NEW_PER_SYNC_PAGE`, default 5), and every sync
+  response carries `x-kobo-recent-reads` set to the page size, so each page downloads in full.
+  Neneko's value replaces the store's: the store's books are merged into the last page and are
+  covered by it too. Pages larger than 5 only help with `MaxDownload` raised.
+- A book the Kobo already lists is only considered again when it is sent again, so articles it
+  never downloaded are re-offered as `NewEntitlement`s in the room left on a page, at most 3
+  times each.
+
+### Still open
+
+- Whether a page's downloads start before the Kobo asks for the next page.
+- Whether a book chosen in both steps is downloaded once (`VolumeManager` has
+  `isVolumeInDownloadQueue`, so probably).
+- What the `ui()` check in `downloadBooks`'s loop reads; probably whether debug logging is on,
+  since it guards the title line.
+
+### Temporary: re-offer tracking (added 0.2.1-dev.5)
+
+The limit of 3 re-offers is there in case the Kobo never takes some article (full storage, a
+file it rejects), which would otherwise be offered at every Sync. It isn't known whether that
+happens. To find out, the ledger counts re-offers (`reoffer_count`, `last_reoffered_at`), and
+rows that were offered again are not deleted 30 days after leaving the Kobo
+(`State.ledger_delete_older_than`). The status page shows "Offered again, never downloaded".
+
+After about a month of use, look at the rows:
+
+```sh
+docker compose exec neneko python -c "import sqlite3; [print(r) for r in sqlite3.connect('/data/neneko.sqlite').execute(
+  'SELECT item_id, title, reoffer_count, last_reoffered_at, downloaded_at, removed_at FROM ledger WHERE reoffer_count > 0')]"
+```
+
+- Rows with `reoffer_count` 3 and no `downloaded_at`: the limit was needed. Keep it (the
+  retention exemption can still go).
+- Rows with a `downloaded_at`: re-offering worked for those.
+- No rows at all: re-offers were never needed, and the paging alone is enough.
+
+Removing the tracking: the `reoffer_count = 0` condition in `ledger_delete_older_than`, the
+status page row, and this subsection. The columns can stay.
+
 ## Protocol summary
 
 - The Kobo's `api_endpoint` (in `.kobo/Kobo/Kobo eReader.conf`, section `[OneStoreServices]`)
@@ -65,7 +154,8 @@ How to watch the Kobo's own log during a Sync: [kobo-debugging.md](kobo-debuggin
 - `GET /v1/library/sync` returns a JSON list of `NewEntitlement`, `ChangedEntitlement`
   (`BookEntitlement.IsRemoved` removes a book), `NewTag`, `ChangedTag`, `DeletedTag`. The
   `x-kobo-synctoken` response header is stored by the Kobo and sent back next time;
-  `x-kobo-sync: continue` makes the Kobo ask again straight away.
+  `x-kobo-sync: continue` makes the Kobo ask again straight away; `x-kobo-recent-reads: N` makes it
+  download up to N books of that page (see above).
 - `PUT /v1/library/<id>/state` carries `ReadingStates[0]` with `StatusInfo.Status`
   (`ReadyToRead`, `Reading`, `Finished`), `CurrentBookmark` and `Statistics`.
 - `DELETE /v1/library/<id>` is "remove from device". The Kobo sends it only at the next Sync
@@ -75,7 +165,8 @@ How to watch the Kobo's own log during a Sync: [kobo-debugging.md](kobo-debuggin
 
 Neneko's sync token holds the database epoch, the generation number of the last response, and
 the real store's token. A response the Kobo never received (generation not echoed back) is sent
-again on the next sync.
+again on the next sync. Between the pages of one Sync it also holds the generation the Sync
+started at and how far re-offering got.
 
 ## Nextcloud News API (v1-3)
 

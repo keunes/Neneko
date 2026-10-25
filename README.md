@@ -91,10 +91,11 @@ You need Docker (with Compose), Nextcloud with the News app, and a Kobo on the s
   Nextcloud News Android app). It stays on the Kobo until you finish it.
 - Finished articles leave the Kobo after `NENEKO_FINISHED_GRACE_HOURS`, so you can still
   "Mark as unread" for a while.
-- The Kobo itself downloads only a few new books after a sync; the others show a download
-  icon and download instantly when you tap them (they are already built). Neneko now sends new
-  articles the way calibre-web does (with a reading state and the real file size) in case that
-  changes it; see [`docs/kobo-notes.md`](docs/kobo-notes.md) for what was tried.
+- The Kobo downloads at most 5 books per sync page by itself (its `MaxDownload` setting), so
+  Neneko sends new articles 5 at a time and tells the Kobo to download each page. Articles it
+  still hasn't downloaded are offered again at the next Syncs (up to 3 times); you can also tap
+  them, they download instantly (they are already built). *Experimental in 0.2.1-dev.5*; how the
+  Kobo decides is in [`docs/kobo-notes.md`](docs/kobo-notes.md#how-nickel-syncs-and-downloads-firmware-43823828).
 - Articles marked read elsewhere (web, phone app) are removed at the next sync.
 - Deleting an article on the Kobo marks it read in Nextcloud (or only forgets it, see
   `NENEKO_DELETE_ACTION`) and it isn't sent again, unless you mark it unread in Nextcloud:
@@ -129,6 +130,7 @@ All settings are environment variables.
 | `NENEKO_KOBO_TOKEN` / `_FILE` | (required) | Secret in the Kobo's `api_endpoint`; at least 16 of `A-Z a-z 0-9 - _` |
 | `NENEKO_NC_FOLDERS` | all | Comma-separated News folder names to sync |
 | `NENEKO_MAX_ITEMS` | `50` | Most articles on the Kobo at once |
+| `NENEKO_NEW_PER_SYNC_PAGE` | `5` | New articles per sync response; the Kobo asks for the next page by itself. More than 5 only helps if `MaxDownload` in the Kobo's `[FeatureSettings]` is raised |
 | `NENEKO_MARK_READ_ON` | `opened` | When an article is marked read in Nextcloud: `opened` (as soon as you open it on the Kobo), `finished`, or `delivered` (as soon as it reaches the Kobo) |
 | `NENEKO_FINISHED_GRACE_HOURS` | `24` | How long finished articles stay on the Kobo |
 | `NENEKO_DELETE_ACTION` | `mark_read` | Deleting on the Kobo: `mark_read` or `forget` |

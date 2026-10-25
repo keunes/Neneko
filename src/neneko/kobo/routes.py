@@ -31,7 +31,8 @@ from .synctoken import SyncToken
 
 log = logging.getLogger(__name__)
 
-STORE_SYNC_HEADERS = ("x-kobo-sync", "x-kobo-sync-mode", "x-kobo-recent-reads")
+STORE_SYNC_HEADERS = ("x-kobo-sync", "x-kobo-sync-mode")
+RECENT_READS_HEADER = "x-kobo-recent-reads"
 
 
 @dataclass
@@ -114,6 +115,10 @@ def create_router(ctx: KoboContext) -> APIRouter:
                 log.warning("store library sync failed: %r", exc)
         if response.more:
             headers["x-kobo-sync"] = "continue"
+        # Without this header the Kobo downloads nothing per page, only a few books after the last
+        # page; with it, up to this many (and its MaxDownload) from every page. See
+        # docs/kobo-notes.md, "How Nickel syncs and downloads". It also covers the store's books.
+        headers[RECENT_READS_HEADER] = str(settings.new_per_sync_page)
         headers[SYNC_TOKEN_HEADER] = response.token.serialize()
         return _json(results, headers=headers)
 
