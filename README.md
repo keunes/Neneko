@@ -97,7 +97,8 @@ You need Docker (with Compose), Nextcloud with the News app, and a Kobo on the s
   changes it; see [`docs/kobo-notes.md`](docs/kobo-notes.md) for what was tried.
 - Articles marked read elsewhere (web, phone app) are removed at the next sync.
 - Deleting an article on the Kobo marks it read in Nextcloud (or only forgets it, see
-  `NENEKO_DELETE_ACTION`) and it isn't sent again.
+  `NENEKO_DELETE_ACTION`) and it isn't sent again, unless you change it in Nextcloud
+  afterwards: mark it unread there and it comes back at the next Sync.
 
 **Collections.** Kobo collections can't be nested, but one article can be in several. By default
 every article is in `Neneko` (everything) and `Neneko · <folder>`; with `NENEKO_COLLECTIONS=all,folder,feed`
@@ -109,7 +110,9 @@ text. If that fails, or gives less text than the feed itself (a cookie wall, a p
 feed's text is used with a link to the original. For feeds that already contain the full
 article you can skip the extra download with `NENEKO_FULLTEXT_NEVER_EXTRACT`. For sites you
 subscribe to, export your browser cookies in Netscape `cookies.txt` format and mount the file
-as `NENEKO_COOKIES_FILE`. Embedded videos become links.
+as `NENEKO_COOKIES_FILE`. Embedded videos become links. Code is set in a monospace font; if
+it doesn't show as such, try the Kobo's "Publisher Default" font setting, since a font you
+choose on the Kobo can replace the book's own fonts.
 
 ## Configuration
 
@@ -175,6 +178,8 @@ are removed.
 - **Switching from calibre-web**: books that calibre-web synced stay on the Kobo; remove
   them there if you no longer want them.
 - `NENEKO_LOG_LEVEL=DEBUG` logs every step. The Kobo token is masked in the logs.
+- To see what the Kobo itself does during a Sync (which books it downloads, which requests
+  fail), see [`docs/kobo-debugging.md`](docs/kobo-debugging.md).
 
 ## Versions
 

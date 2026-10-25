@@ -196,15 +196,17 @@ class State:
         )
 
     def ledger_dismiss(self, item_id: int) -> None:
-        """The Kobo deleted this article; don't send it again while it stays unread."""
+        """The Kobo deleted this article; don't send it again unless it changes in Nextcloud."""
         self._exec(
             "UPDATE ledger SET removed_at = COALESCE(removed_at, ?), removed_gen = 0, dismissed = 1 "
             "WHERE item_id = ?",
             (time.time(), item_id),
         )
 
-    def ledger_dismissed_ids(self) -> set[int]:
-        return {row["item_id"] for row in self._all("SELECT item_id FROM ledger WHERE dismissed = 1")}
+    def ledger_dismissed_ids(self) -> dict[int, float]:
+        """Articles deleted on the Kobo, with when they left it."""
+        rows = self._all("SELECT item_id, removed_at FROM ledger WHERE dismissed = 1")
+        return {row["item_id"]: row["removed_at"] or 0.0 for row in rows}
 
     def ledger_purge_item_json(self, item_id: int) -> None:
         self._exec("UPDATE ledger SET item_json = NULL WHERE item_id = ?", (item_id,))

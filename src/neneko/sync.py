@@ -22,6 +22,15 @@ NEW_PER_PAGE = 100  # new articles per sync response; "continue" makes the Kobo 
 SYNC_BUILD_WAIT = 10  # seconds a sync waits for new articles to be built
 
 
+def _modified_at(item: dict) -> float:
+    """An item's lastModified as a Unix time (older News versions send seconds, newer microseconds)."""
+    try:
+        value = float(item.get("lastModified") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return value / 1_000_000 if value > 100_000_000_000 else value
+
+
 @dataclass
 class SyncResponse:
     results: list[dict] = field(default_factory=list)
@@ -163,7 +172,10 @@ class SyncEngine:
                         keep_finished.add(item_id)
                 elif item_id in by_id or row["nc_read_by_neneko"]:
                     candidates.add(item_id)
-            candidates |= {item_id for item_id in by_id if item_id not in active and item_id not in dismissed}
+            # An article removed on the Kobo comes back only if it changed in Nextcloud since
+            # (e.g. marked unread again); until then it is just Neneko's own mark-read on its way.
+            candidates |= {item_id for item_id, item in by_id.items() if item_id not in active
+                           and (item_id not in dismissed or _modified_at(item) > dismissed[item_id])}
             slots = max(0, settings.max_items - len(keep_always))
             chosen = sorted(candidates, reverse=True)[:slots]
             target = set(chosen) | keep_always | keep_finished

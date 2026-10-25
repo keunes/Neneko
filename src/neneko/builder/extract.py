@@ -1,6 +1,7 @@
 """Getting the full article: fetch the page, extract the main content, and decide
 whether it beats the text Nextcloud News already has."""
 
+import html
 import http.cookiejar
 import logging
 import threading
@@ -162,9 +163,28 @@ def _body_inner_html(document: str) -> str:
     body = root.find("body")
     if body is None:
         return document
-    parts = [body.text or ""]
+    _restore_inline_code(body)
+    parts = [html.escape(body.text or "")]
     parts += [lxml_html.tostring(child, encoding="unicode") for child in body]
     return "".join(parts)
+
+
+INLINE_PARENTS = {"p", "li", "td", "th", "dd", "dt", "a", "strong", "em", "b", "i", "span", "h1", "h2", "h3",
+                  "h4", "h5", "h6", "figcaption"}
+
+
+def _restore_inline_code(body) -> None:
+    """trafilatura turns every <code> into <pre>, also inline ones such as a version number
+    in a sentence. Turn those back into <code> so the sentence stays one paragraph."""
+    for pre in list(body.iter("pre")):
+        if "\n" in pre.text_content().strip():
+            continue  # a real code block
+        parent = pre.getparent()
+        previous = pre.getprevious()
+        text_before = previous.tail if previous is not None else (parent.text if parent is not None else None)
+        if (parent is not None and parent.tag in INLINE_PARENTS) or (text_before or "").strip() \
+                or (pre.tail or "").strip():
+            pre.tag = "code"
 
 
 def choose_content(item: dict, *, extract: bool, fetcher: Fetcher) -> Content:

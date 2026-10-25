@@ -80,7 +80,9 @@ def test_unknown_requests_go_to_the_store(make_kobo):
 def test_product_lookups_for_articles_stay_local(make_kobo, sample):
     kobo = make_kobo(store_proxy=True)
     ours = item_uuid(kobo.ctx.prefix, ITEMS[0]["id"])
-    assert kobo.client.get(kobo.url(f"/v1/products/{ours}/nextread")).status_code == 404
+    nextread = kobo.client.get(kobo.url(f"/v1/products/{ours}/nextread"))
+    assert nextread.status_code == 200 and nextread.json() == []
+    assert kobo.client.get(kobo.url(f"/v1/products/{ours}/recommendations")).status_code == 404
     response = kobo.client.get(kobo.url("/v1/products/3f0b2c4e-8d7a-4b1e-9c55-1a2b3c4d5e6f/nextread"),
                                follow_redirects=False)
     assert response.status_code == 307
@@ -109,6 +111,9 @@ def test_download_builds_a_kepub_with_full_text_and_images(make_kobo, sample):
 
     response = kobo.client.get(url)
     assert response.status_code == 200
+    assert response.headers["content-type"] == "application/octet-stream"
+    assert response.headers["x-kobo-apitoken"] == "e30="
+    assert 'filename="1104.kepub"' in response.headers["content-disposition"]
     book = zipfile.ZipFile(io.BytesIO(response.content))
     assert book.namelist()[0] == "mimetype"
     assert book.read("mimetype") == b"application/epub+zip"

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import httpx
 
-from neneko.builder.extract import Fetcher, choose_content
+from neneko.builder.extract import Fetcher, choose_content, extract_main_content
 from neneko.builder.sanitize import clean_fragment, drop_leading_title, image_sources, plain_excerpt, text_length
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -97,3 +97,15 @@ def test_requests_look_like_a_browser_and_refusals_are_logged_once(caplog):
     assert image.headers["accept"].startswith("image/") and image.headers["referer"] == "https://blocked.example/post"
     assert len([r for r in caplog.records if r.levelname == "INFO"]) == 1
     assert Fetcher(user_agent="Custom/1")._client.headers["user-agent"] == "Custom/1"
+
+
+def test_inline_code_stays_inline_and_code_blocks_stay_blocks():
+    filler = "<p>" + "Some introduction text about apps and their updates this week. " * 15 + "</p>"
+    item = ('<li><strong><a href="https://f-droid.org/en/packages/eu.siacs.conversations">Conversations</a></strong>'
+            ' since this week with update <code class="language-plaintext highlighter-rouge">2.20.3+free</code></li>')
+    block = "<pre><code>apt update\napt install neneko</code></pre>"
+    page = (f"<html><body><article><h1>Updates</h1>{filler}<ul>{item}<li>Another app with an update</li></ul>"
+            f"{filler}{block}{filler}</article></body></html>")
+    extracted = extract_main_content(page, "https://example.org/post")
+    assert "with update <code>2.20.3+free</code></li>" in extracted
+    assert "<pre>apt update\napt install neneko</pre>" in extracted

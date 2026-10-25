@@ -181,14 +181,16 @@ def create_router(ctx: KoboContext) -> APIRouter:
         except Exception as exc:  # noqa: BLE001 - logged by the builder
             log.error("download of item %s failed: %r", item_id, exc)
             raise HTTPException(status_code=500) from exc
-        name = f"{item_id}.kepub.epub" if builder.use_kepub else f"{item_id}.epub"
+        # Headers as calibre-web and other Kobo servers send them.
+        name = f"{item_id}.kepub" if builder.use_kepub else f"{item_id}.epub"
+        headers = {"x-kobo-apitoken": "e30="}
         if request.method == "HEAD":
             log.info("download of item %s: size checked (HEAD)", item_id)
-            return FileResponse(path, media_type="application/epub+zip", filename=name)
-        state.ledger_set_downloaded(item_id)
-        log.info("download of item %s: %s, ready after %.1f s", item_id,
-                 "from cache" if was_built else "built on request", time.monotonic() - started)
-        return FileResponse(path, media_type="application/epub+zip", filename=name)
+        else:
+            state.ledger_set_downloaded(item_id)
+            log.info("download of item %s: %s, ready after %.1f s", item_id,
+                     "from cache" if was_built else "built on request", time.monotonic() - started)
+        return FileResponse(path, media_type="application/octet-stream", filename=name, headers=headers)
 
     async def cover(book_uuid: str, width: str, height: str):
         item_id = ours(book_uuid)
@@ -253,8 +255,11 @@ def create_router(ctx: KoboContext) -> APIRouter:
     @router.api_route("/v1/products/{ids}/{action}", methods=["GET", "POST"])
     async def product_lookup(ids: str, action: str, request: Request):
         # Lookups like nextread/recommendations for our articles: the store doesn't
-        # know them, so answer "not found" here instead of sending the IDs to Kobo.
+        # know them, so answer here instead of sending the IDs to Kobo. An empty
+        # "next read" list is the truth; a 404 makes the Kobo log an error.
         if all(ours(value) is not None for value in ids.split(",")):
+            if action == "nextread":
+                return _json([])
             return _json({}, status_code=404)
         return await proxy.passthrough(request, store_path(request))
 
