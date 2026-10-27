@@ -14,7 +14,12 @@ services:
       NENEKO_NC_APP_PASSWORD_FILE: /run/secrets/neneko_nc_app_password
       NENEKO_KOBO_TOKEN_FILE: /run/secrets/neneko_kobo_token
       NENEKO_PUBLIC_URL: http://neneko-host:8089    # how the Kobo reaches this container
-      # NENEKO_NC_FOLDERS: "Tech,Long reads"        # default: all unread items
+      # Which feeds (default: all). Start from the included folders (or everything), remove
+      # excluded folders, add included feeds, remove excluded feeds. See README "Which feeds".
+      # NENEKO_INCLUDE_FOLDERS: "Tech,News"
+      # NENEKO_EXCLUDE_FOLDERS: "Sport"
+      # NENEKO_INCLUDE_FEEDS: "Ars Technica"        # feed titles or IDs
+      # NENEKO_EXCLUDE_FEEDS: "BBC News,CNN"
       # NENEKO_MAX_ITEMS: "50"
       # NENEKO_MARK_READ_ON: opened                 # opened | finished | delivered
       # NENEKO_COLLECTIONS: "all,folder"            # add ",feed" for one collection per feed

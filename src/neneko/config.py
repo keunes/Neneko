@@ -24,7 +24,12 @@ class Settings(BaseSettings):
     nc_user: str
     nc_app_password: str = ""
     nc_app_password_file: Path | None = None
-    nc_folders: Annotated[list[str], NoDecode] = []
+
+    # Which feeds (see scope.py and README "Which feeds")
+    include_folders: Annotated[list[str], NoDecode] = []
+    exclude_folders: Annotated[list[str], NoDecode] = []
+    include_feeds: Annotated[list[str], NoDecode] = []
+    exclude_feeds: Annotated[list[str], NoDecode] = []
 
     # Kobo
     public_url: str
@@ -69,7 +74,8 @@ class Settings(BaseSettings):
     port: int = 8089
     log_level: str = "INFO"
 
-    @field_validator("nc_folders", "fulltext_never_extract", "collections", mode="before")
+    @field_validator("include_folders", "exclude_folders", "include_feeds", "exclude_feeds",
+                     "fulltext_never_extract", "collections", mode="before")
     @classmethod
     def _lists(cls, value):
         return _split_list(value)
@@ -92,6 +98,11 @@ class Settings(BaseSettings):
                 "NENEKO_KOBO_TOKEN (or _FILE) must be at least 16 characters of A-Z, a-z, 0-9, '-' or '_'"
             )
         return self
+
+    @property
+    def scope_rules(self) -> dict[str, list[str]]:
+        return {"include_folders": self.include_folders, "exclude_folders": self.exclude_folders,
+                "include_feeds": self.include_feeds, "exclude_feeds": self.exclude_feeds}
 
     @property
     def kobo_base_url(self) -> str:

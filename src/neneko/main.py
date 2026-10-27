@@ -46,7 +46,7 @@ def create_app(settings: Settings | None = None, *,
         hit = check_cache.get("result")
         if hit and time.monotonic() - hit[0] < max_age:
             return hit[1]
-        result = await news.check(settings.nc_folders)
+        result = await news.check(**settings.scope_rules)
         check_cache["result"] = (time.monotonic(), result)
         return result
 

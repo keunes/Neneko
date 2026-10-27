@@ -55,13 +55,15 @@ def test_settings_lists_and_secret_files(tmp_path, monkeypatch):
     monkeypatch.setenv("NENEKO_NC_APP_PASSWORD_FILE", str(tmp_path / "pw"))
     monkeypatch.setenv("NENEKO_KOBO_TOKEN_FILE", str(tmp_path / "token"))
     monkeypatch.setenv("NENEKO_PUBLIC_URL", "http://pi:8089")
-    monkeypatch.setenv("NENEKO_NC_FOLDERS", "Tech, Long reads")
+    monkeypatch.setenv("NENEKO_INCLUDE_FOLDERS", "Tech, Long reads")
+    monkeypatch.setenv("NENEKO_EXCLUDE_FEEDS", "BBC News,42")
     monkeypatch.setenv("NENEKO_COLLECTIONS", "all,feed")
     settings = Settings()
     assert settings.nc_url == "https://cloud.example.org"
     assert settings.nc_app_password == "secret"
     assert settings.kobo_token == "abcdefghijklmnop_1234"
-    assert settings.nc_folders == ["Tech", "Long reads"]
+    assert settings.include_folders == ["Tech", "Long reads"]
+    assert settings.scope_rules["exclude_feeds"] == ["BBC News", "42"]
     assert settings.collections == ["all", "feed"]
     assert settings.kobo_base_url == "http://pi:8089/kobo/abcdefghijklmnop_1234"
 

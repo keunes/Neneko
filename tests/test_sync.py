@@ -87,8 +87,25 @@ def test_switching_collection_settings_renames_and_deletes(make_kobo, news):
 def test_folder_filter(make_kobo, news):
     tech = news.add_item(51)
     news.add_item(35)
-    kobo = make_kobo(nc_folders=["tech"])
+    kobo = make_kobo(include_folders=["tech"])
     assert ids_of(kobo.sync(), "NewEntitlement") == [uuid_of(kobo, tech["id"])]
+
+
+def test_include_feeds_only_asks_for_those_feeds(make_kobo, news):
+    podcast = news.add_item(35)
+    news.add_item(51)
+    kobo = make_kobo(include_feeds=["podcast weekly"])
+    assert ids_of(kobo.sync(), "NewEntitlement") == [uuid_of(kobo, podcast["id"])]
+    assert {call[2].get("type") for call in news.calls if call[1].endswith("/items")} == {"0"}
+
+
+def test_excluded_noisy_feed_doesnt_empty_the_window(make_kobo, news):
+    wanted = [news.add_item(43) for _ in range(3)]
+    for _ in range(30):
+        news.add_item(51)  # newer, and excluded
+    kobo = make_kobo(max_items=3, exclude_feeds=["Example Tech Daily"])
+    offered = ids_of(kobo.sync(), "NewEntitlement")
+    assert sorted(offered) == sorted(uuid_of(kobo, item["id"]) for item in wanted)
 
 
 def test_window_keeps_newest_and_drops_untouched_old_ones(make_kobo, news):

@@ -5,10 +5,14 @@ import time
 
 import httpx
 
+from .scope import ALL, FEED, FOLDER, Scope
+
 log = logging.getLogger(__name__)
 
+TYPE_FEED = 0
 TYPE_FOLDER = 1
 TYPE_ALL = 3
+SOURCE_TYPES = {ALL: TYPE_ALL, FOLDER: TYPE_FOLDER, FEED: TYPE_FEED}
 
 
 def modified_at(item: dict) -> float:
@@ -122,36 +126,40 @@ class NewsClient:
     async def feeds(self) -> list[dict]:
         return (await self._cached("feeds", "/feeds"))["feeds"]
 
-    async def check(self, wanted_folders: list[str]) -> tuple[bool, str, str]:
-        """Can we read News? Returns (ok, summary, hint); never raises."""
+    async def check(self, **rules: list[str]) -> tuple[bool, str, str]:
+        """Can we read News, and do the include/exclude rules match? Returns (ok, summary, hint);
+        never raises."""
         try:
-            folders = await self._request("GET", "/folders")
-            feeds = await self._request("GET", "/feeds")
-            folder_names = [folder["name"] for folder in folders["folders"]]
-            feed_count = len(feeds["feeds"])
+            folders = (await self._request("GET", "/folders"))["folders"]
+            feeds = (await self._request("GET", "/feeds"))["feeds"]
+            folder_names = {folder["id"]: folder["name"] for folder in folders}
+            scope = Scope(folder_names, {feed["id"]: feed for feed in feeds}, **rules)
         except NextcloudError as exc:
             return False, str(exc), HINTS.get(exc.kind, HINTS["http"])
         except (KeyError, TypeError) as exc:
             return False, f"unexpected answer: {exc!r}", HINTS["bad_response"]
-        summary = f"{len(folder_names)} folders, {feed_count} feeds"
-        if not wanted_folders:
-            return True, f"{summary}; syncing all unread items", ""
-        known = {name.casefold() for name in folder_names}
-        missing = [name for name in wanted_folders if name.casefold() not in known]
-        if missing:
-            return False, f"{summary}; NENEKO_NC_FOLDERS not found: {', '.join(missing)}", (
-                f"Existing folders: {', '.join(folder_names) or 'none'}.")
-        return True, f"{summary}; syncing folders {', '.join(wanted_folders)}", ""
+        summary = f"{len(folders)} folders, {len(feeds)} feeds; {scope.describe()}"
+        unknown = scope.unknown_names()
+        if unknown:
+            return False, f"{summary}; not found: {', '.join(unknown)}", (
+                "Use the names exactly as Nextcloud News shows them (case doesn't matter), or a "
+                f"feed's ID. Existing folders: {', '.join(folder_names.values()) or 'none'}.")
+        return True, summary, ""
 
-    async def unread_items(self, *, folder_id: int | None, batch_size: int) -> list[dict]:
-        """Newest unread items (by arrival), for one folder or for everything."""
+    async def unread_items(self, *, source: tuple[str, int], batch_size: int,
+                           offset: int | None = None) -> list[dict]:
+        """Newest unread items (by arrival) of a scope source (everything, a folder or a feed),
+        older than item `offset` if given."""
+        kind, ident = source
         params = {
-            "type": TYPE_ALL if folder_id is None else TYPE_FOLDER,
-            "id": 0 if folder_id is None else folder_id,
+            "type": SOURCE_TYPES[kind],
+            "id": ident,
             "getRead": "false",
             "batchSize": batch_size,
             "oldestFirst": "false",
         }
+        if offset is not None:
+            params["offset"] = offset
         return (await self._request("GET", "/items", params=params))["items"]
 
     async def items_updated_since(self, last_modified: int) -> list[dict]:

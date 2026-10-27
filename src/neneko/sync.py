@@ -14,6 +14,7 @@ from .ids import item_uuid, tag_uuid
 from .kobo import payloads
 from .kobo.synctoken import SyncToken
 from .nextcloud import NewsClient, NextcloudError, modified_at
+from .scope import Scope
 from .state import State
 
 log = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ log = logging.getLogger(__name__)
 KOBO_STATUSES = {"ReadyToRead", "Reading", "Finished"}
 FORGET_REMOVED_AFTER = 30 * 86400
 SYNC_BUILD_WAIT = 10  # seconds a sync waits for new articles to be built
+MAX_WINDOW_PAGES = 10  # Nextcloud requests per scope source when rules drop many items
 
 
 def arrival_times(new: dict[int, float], known: dict[int, float]) -> dict[int, int]:
@@ -102,27 +104,29 @@ class SyncEngine:
         folders = await self.news.folders()
         feeds = {feed["id"]: feed for feed in await self.news.feeds()}
         folder_names = {folder["id"]: folder["name"] for folder in folders}
+        scope = self._scope(feeds, folder_names)
+        unknown = scope.unknown_names()
+        if unknown:
+            log.warning("include/exclude rules: not found in Nextcloud News: %s", ", ".join(unknown))
         batch = min(max(self.settings.max_items * 2, 20), 500)
-        if not self.settings.nc_folders:
-            items = await self.news.unread_items(folder_id=None, batch_size=batch)
-        else:
-            wanted = {name.casefold() for name in self.settings.nc_folders}
-            folder_ids = [fid for fid, name in folder_names.items() if name.casefold() in wanted]
-            missing = wanted - {folder_names[fid].casefold() for fid in folder_ids}
-            if missing:
-                log.warning("NENEKO_NC_FOLDERS names not found in Nextcloud News: %s", ", ".join(sorted(missing)))
-            items = []
-            for folder_id in folder_ids:
-                items += await self.news.unread_items(folder_id=folder_id, batch_size=batch)
-        unique = {item["id"]: item for item in items if item.get("unread", True) and not item.get("filtered")}
+        unique: dict[int, dict] = {}
+        for source in scope.sources():
+            # Page further back when rules drop items, so the window still fills up.
+            offset, kept = None, 0
+            for _ in range(MAX_WINDOW_PAGES):
+                page = await self.news.unread_items(source=source, batch_size=batch, offset=offset)
+                for item in page:
+                    if item.get("unread", True) and not item.get("filtered") and item["id"] not in unique \
+                            and scope.allows(item.get("feedId")):
+                        unique[item["id"]] = item
+                        kept += 1
+                if len(page) < batch or kept >= self.settings.max_items:
+                    break
+                offset = min(item["id"] for item in page)
         return sorted(unique.values(), key=lambda item: -item["id"]), feeds, folder_names
 
-    def _in_scope(self, item: dict, feeds: dict[int, dict], folder_names: dict[int, str]) -> bool:
-        if not self.settings.nc_folders:
-            return True
-        feed = feeds.get(item.get("feedId"))
-        folder = folder_names.get(feed.get("folderId")) if feed else None
-        return folder is not None and folder.casefold() in {n.casefold() for n in self.settings.nc_folders}
+    def _scope(self, feeds: dict[int, dict], folder_names: dict[int, str]) -> Scope:
+        return Scope(folder_names, feeds, **self.settings.scope_rules)
 
     async def flush_outbox(self, timeout: float | None = None) -> bool:
         """Send queued read/unread changes. Returns True if the outbox is empty afterwards."""
@@ -326,8 +330,9 @@ class SyncEngine:
             log.warning("recovery sweep skipped: %s", exc)
             return []
         on_kobo = {row["item_id"] for row in self.state.ledger_active()}
+        scope = self._scope(feeds, folder_names)
         read = [item for item in items
-                if not item.get("unread") and item["id"] not in on_kobo and self._in_scope(item, feeds, folder_names)]
+                if not item.get("unread") and item["id"] not in on_kobo and scope.allows(item.get("feedId"))]
         # Only the most recent ones can have been on the Kobo; this keeps the response small.
         limit = max(4 * self.settings.max_items, 200)
         results = []

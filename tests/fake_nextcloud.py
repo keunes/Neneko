@@ -87,6 +87,8 @@ class FakeNews:
                 result = [item for item in result if item["feedId"] == id]
             if getRead == "false":
                 result = [item for item in result if item["unread"]]
+            if offset:
+                result = [item for item in result if item["id"] < offset]  # newest first: older than offset
             if batchSize > 0:
                 result = result[:batchSize]
             return {"items": result}

@@ -11,11 +11,11 @@ from neneko.nextcloud import NewsClient
 from .conftest import kepubify_binary
 
 
-def check(handler, folders=()):
+def check(handler, **rules):
     async def run():
         client = NewsClient("https://cloud.example.org", "reader", "pw", transport=httpx.MockTransport(handler))
         try:
-            return await client.check(list(folders))
+            return await client.check(**rules)
         finally:
             await client.aclose()
     return asyncio.run(run())
@@ -47,10 +47,12 @@ def test_check_ok_and_unknown_folders():
     def handler(request):
         if request.url.path.endswith("/folders"):
             return httpx.Response(200, json={"folders": [{"id": 1, "name": "Tech"}]})
-        return httpx.Response(200, json={"feeds": [{"id": 5}, {"id": 6}]})
-    assert check(handler) == (True, "1 folders, 2 feeds; syncing all unread items", "")
-    ok, summary, hint = check(handler, ["tech", "Nope"])
-    assert not ok and "Nope" in summary and "Tech" in hint
+        return httpx.Response(200, json={"feeds": [{"id": 5, "title": "BBC News"}, {"id": 6, "title": "CNN"}]})
+    assert check(handler) == (True, "1 folders, 2 feeds; syncing all feeds", "")
+    assert check(handler, exclude_feeds=["bbc news", "6"]) == (
+        True, "1 folders, 2 feeds; syncing all feeds, except feeds bbc news, 6", "")
+    ok, summary, hint = check(handler, include_folders=["tech", "Nope"], exclude_feeds=["Missing"])
+    assert not ok and "folder 'Nope'" in summary and "feed 'Missing'" in summary and "Tech" in hint
 
 
 def test_startup_check_and_health_endpoint(make_kobo, news, caplog):

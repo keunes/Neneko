@@ -81,9 +81,9 @@ You need Docker (with Compose), Nextcloud with the News app, and a Kobo on the s
 
 ## What ends up on the Kobo
 
-- The **newest unread items** (by arrival in Nextcloud News), at most `NENEKO_MAX_ITEMS`. Limit
-  them to some folders with `NENEKO_NC_FOLDERS`; by default all feeds are included. Items
-  hidden by News feed filters are skipped.
+- The **newest unread items** (by arrival in Nextcloud News), at most `NENEKO_MAX_ITEMS`, from
+  all feeds or the ones chosen with the rules below. Items hidden by News feed filters are
+  skipped.
 - When newer articles push an older one out of that window and you haven't opened it, it is
   removed from the Kobo; it stays unread in Nextcloud.
 - Articles you have started reading stay until you finish them.
@@ -106,6 +106,45 @@ You need Docker (with Compose), Nextcloud with the News app, and a Kobo on the s
   then it comes back at the next Sync. The Kobo only reports a deletion at its next Sync, and
   without saying when it happened, so Neneko can't tell which came first. Anything you
   changed in Nextcloud since the previous Sync counts as the newer choice.
+
+### Which feeds
+
+By default every feed is synced. Four settings narrow that down, each a comma-separated list.
+Folders are matched by name, feeds by their title as Nextcloud News shows it or by feed ID;
+upper and lower case don't matter.
+
+| Setting | Effect |
+| --- | --- |
+| `NENEKO_INCLUDE_FOLDERS` | Only these folders (plus any included feeds) |
+| `NENEKO_EXCLUDE_FOLDERS` | Not these folders |
+| `NENEKO_INCLUDE_FEEDS` | These feeds too; on its own: only these feeds |
+| `NENEKO_EXCLUDE_FEEDS` | Not these feeds |
+
+Neneko applies them in this order:
+
+1. **Start** with the feeds in `NENEKO_INCLUDE_FOLDERS`, if set. If `NENEKO_INCLUDE_FEEDS` is
+   the only folder or include rule, start with nothing. Otherwise start with all feeds.
+2. **Remove** the feeds in `NENEKO_EXCLUDE_FOLDERS`. A folder that is both included and
+   excluded is excluded.
+3. **Add** `NENEKO_INCLUDE_FEEDS`, even from an excluded folder: a feed rule is more specific
+   than a folder rule.
+4. **Remove** `NENEKO_EXCLUDE_FEEDS`. A feed that is both included and excluded is excluded.
+
+Examples, with folders "Tech", "News" and "Sport":
+
+| Settings | Synced |
+| --- | --- |
+| none | all feeds |
+| `NENEKO_EXCLUDE_FEEDS=BBC News,CNN` | everything except those two feeds |
+| `NENEKO_INCLUDE_FOLDERS=Tech` | only the Tech folder |
+| `NENEKO_INCLUDE_FEEDS=Ars Technica` | only Ars Technica |
+| `NENEKO_INCLUDE_FOLDERS=Tech` and `NENEKO_INCLUDE_FEEDS=BBC News` | Tech, plus BBC News |
+| `NENEKO_INCLUDE_FOLDERS=Tech,News` and `NENEKO_EXCLUDE_FEEDS=CNN` | Tech and News, without CNN |
+| `NENEKO_EXCLUDE_FOLDERS=Sport` | everything except Sport |
+| `NENEKO_EXCLUDE_FOLDERS=News` and `NENEKO_INCLUDE_FEEDS=BBC News` | everything except News, but with BBC News (which is in News) |
+
+The startup log and the status page show the result ("syncing all feeds, except feeds BBC
+News, CNN") and name any folder or feed that wasn't found.
 
 **Collections.** Kobo collections can't be nested, but one article can be in several. By default
 every article is in `Neneko` (everything) and `Neneko · <folder>`; with `NENEKO_COLLECTIONS=all,folder,feed`
@@ -132,7 +171,10 @@ All settings are environment variables.
 | `NENEKO_NC_APP_PASSWORD` / `_FILE` | (required) | App password, or a file containing it |
 | `NENEKO_PUBLIC_URL` | (required) | How the Kobo reaches Neneko, e.g. `http://neneko-host:8089` |
 | `NENEKO_KOBO_TOKEN` / `_FILE` | (required) | Secret in the Kobo's `api_endpoint`; at least 16 of `A-Z a-z 0-9 - _` |
-| `NENEKO_NC_FOLDERS` | all | Comma-separated News folder names to sync |
+| `NENEKO_INCLUDE_FOLDERS` | | Only sync these News folders (comma-separated); see [Which feeds](#which-feeds) |
+| `NENEKO_EXCLUDE_FOLDERS` | | Don't sync these folders |
+| `NENEKO_INCLUDE_FEEDS` | | Also sync these feeds (titles or IDs); on its own: only these |
+| `NENEKO_EXCLUDE_FEEDS` | | Don't sync these feeds (titles or IDs) |
 | `NENEKO_MAX_ITEMS` | `50` | Most articles on the Kobo at once |
 | `NENEKO_NEW_PER_SYNC_PAGE` | `5` | New articles per sync response (up to 500); the Kobo asks for the next page by itself. More than 5 needs `MaxDownload` raised on the Kobo, see [Fewer refreshes during a Sync](#fewer-refreshes-during-a-sync) |
 | `NENEKO_MARK_READ_ON` | `opened` | When an article is marked read in Nextcloud: `opened` (as soon as you open it on the Kobo), `finished`, or `delivered` (as soon as it reaches the Kobo) |
