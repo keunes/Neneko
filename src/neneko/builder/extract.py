@@ -4,6 +4,7 @@ whether it beats the text Nextcloud News already has."""
 import html
 import http.cookiejar
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -26,6 +27,10 @@ IMAGE_ACCEPT = "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
 ACCEPT_LANGUAGE = "en-US,en;q=0.9,*;q=0.5"
 REFUSED = {401, 403, 429}
 REFUSAL_LOG_INTERVAL = 600  # seconds between "site refuses" lines per host
+# Logged with a refusal: they tell a JavaScript challenge (Cloudflare sets cf-mitigated) from a
+# plain block or a rate limit, and which bot protection answered.
+REFUSAL_HEADERS = ("server", "cf-mitigated", "retry-after")
+REFUSAL_PEEK_BYTES = 8192
 MAX_PAGE_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 # An extraction that recovers less than this share of the feed's own text is
@@ -56,7 +61,7 @@ class Fetcher:
     def close(self) -> None:
         self._client.close()
 
-    def _log_refusal(self, url: str, status: int) -> None:
+    def _log_refusal(self, url: str, response: httpx.Response) -> None:
         """One line per site every few minutes, not one per image."""
         host = httpx.URL(url).host
         now = time.monotonic()
@@ -64,18 +69,20 @@ class Fetcher:
             quiet = now - self._refusals.get(host, -REFUSAL_LOG_INTERVAL) < REFUSAL_LOG_INTERVAL
             if not quiet:
                 self._refusals[host] = now
+        details = _refusal_details(response)
         if quiet:
-            log.debug("fetch %s: HTTP %s", url, status)
+            log.debug("fetch %s: HTTP %s (%s)", url, response.status_code, details)
         else:
-            log.info("fetch %s: HTTP %s; %s refuses automated requests (more refusals from it in the next "
-                     "%d minutes are logged at DEBUG level)", url, status, host, REFUSAL_LOG_INTERVAL // 60)
+            log.info("fetch %s: HTTP %s (%s); %s refuses automated requests (more refusals from it in the "
+                     "next %d minutes are logged at DEBUG level)", url, response.status_code, details, host,
+                     REFUSAL_LOG_INTERVAL // 60)
 
     def _get(self, url: str, limit: int, headers: dict[str, str]) -> tuple[bytes, str, str, str | None] | None:
         """Return (body, final url, content type, charset), or None on any failure."""
         try:
             with self._client.stream("GET", url, headers=headers) as response:
                 if response.status_code in REFUSED:
-                    self._log_refusal(url, response.status_code)
+                    self._log_refusal(url, response)
                     return None
                 if response.status_code >= 400:
                     log.info("fetch %s: HTTP %s", url, response.status_code)
@@ -112,6 +119,31 @@ class Fetcher:
             headers["Referer"] = referer
         result = self._get(url, MAX_IMAGE_BYTES, headers)
         return result[0] if result is not None else None
+
+
+def _refusal_details(response: httpx.Response) -> str:
+    """The telling headers and the refusal page's title (or first text), e.g.
+    "server=cloudflare, cf-mitigated=challenge, page 'Just a moment...'"."""
+    parts = [f"{name}={response.headers[name]}" for name in REFUSAL_HEADERS if name in response.headers]
+    head = b""
+    try:
+        for chunk in response.iter_bytes():
+            head += chunk
+            if len(head) >= REFUSAL_PEEK_BYTES:
+                break
+    except httpx.HTTPError:
+        pass
+    page = head[:REFUSAL_PEEK_BYTES].decode("utf-8", errors="replace")
+    title = re.search(r"<title[^>]*>(.*?)</title>", page, re.I | re.S)
+    if title:
+        text = title.group(1)
+    else:
+        text = re.sub(r"<(script|style)\b.*?(</\1>|$)", " ", page, flags=re.I | re.S)
+        text = re.sub(r"<[^>]*>?", " ", text)
+    text = " ".join(html.unescape(text).split())
+    if text:
+        parts.append(f"page {text[:100]!r}")
+    return ", ".join(parts) or "no details"
 
 
 @dataclass

@@ -240,7 +240,9 @@ are removed.
 - **An article only has the teaser text**: the site couldn't be fetched or extracted (paywall,
   JavaScript-only page); the article ends with a note and a link to the original. A log line
   "refuses automated requests" (HTTP 403) means the site blocks anything that isn't a real
-  browser; cookies (`NENEKO_COOKIES_FILE`) sometimes help.
+  browser; cookies (`NENEKO_COOKIES_FILE`) sometimes help. The line says what answered: the
+  `server`, `cf-mitigated=challenge` when Cloudflare wanted to run JavaScript, `retry-after` for
+  a rate limit (HTTP 429), and the title of the refusal page.
 - **Switching from calibre-web**: books that calibre-web synced stay on the Kobo; remove
   them there if you no longer want them.
 - `NENEKO_LOG_LEVEL=DEBUG` logs every step. The Kobo token is masked in the logs.

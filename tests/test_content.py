@@ -83,7 +83,9 @@ def test_requests_look_like_a_browser_and_refusals_are_logged_once(caplog):
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
-        return httpx.Response(403)
+        return httpx.Response(403, headers={"Server": "cloudflare", "cf-mitigated": "challenge"},
+                              html="<html><head><title>Just a moment...</title></head><body>"
+                                   "<script>challenge()</script></body></html>")
 
     fetcher = Fetcher(transport=httpx.MockTransport(handler))
     with caplog.at_level("INFO", logger="neneko.builder.extract"):
@@ -95,8 +97,20 @@ def test_requests_look_like_a_browser_and_refusals_are_logged_once(caplog):
     assert "Neneko" not in page.headers["user-agent"] and "Chrome/" in page.headers["user-agent"]
     assert page.headers["accept"].startswith("text/html") and "referer" not in page.headers
     assert image.headers["accept"].startswith("image/") and image.headers["referer"] == "https://blocked.example/post"
-    assert len([r for r in caplog.records if r.levelname == "INFO"]) == 1
+    infos = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert len(infos) == 1
+    assert "HTTP 403 (server=cloudflare, cf-mitigated=challenge, page 'Just a moment...')" in infos[0]
     assert Fetcher(user_agent="Custom/1")._client.headers["user-agent"] == "Custom/1"
+
+
+def test_refusal_without_title_logs_the_first_text(caplog):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, headers={"Retry-After": "120"},
+                              html="<body><style>p{}</style><p>Too   many &amp; requests</p></body>")
+
+    with caplog.at_level("INFO", logger="neneko.builder.extract"):
+        assert Fetcher(transport=httpx.MockTransport(handler)).page("https://busy.example/") is None
+    assert "HTTP 429 (retry-after=120, page 'Too many & requests')" in caplog.text
 
 
 def test_inline_code_stays_inline_and_code_blocks_stay_blocks():
