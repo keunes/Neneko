@@ -123,3 +123,24 @@ def test_inline_code_stays_inline_and_code_blocks_stay_blocks():
     extracted = extract_main_content(page, "https://example.org/post")
     assert "with update <code>2.20.3+free</code></li>" in extracted
     assert "<pre>apt update\napt install neneko</pre>" in extracted
+
+
+def test_bold_heading_with_line_break_keeps_the_break_and_bold_ends():
+    filler = "<p>" + "Some text about parking plans in the neighbourhood next door. " * 15 + "</p>"
+    page = ("<html><body><article><h1>Parking</h1>" + filler +
+            '<p style="background-color:#e1ebfc"><strong>In a box</strong><br>Boxed text.</p>'
+            "<p><strong>Separate break</strong><strong><br></strong>Text after the first heading.</p>"
+            "<p><strong>Break inside<br></strong>Text after the second heading.</p>"
+            "<p>A paragraph that is not bold.</p>" + filler + "</article></body></html>")
+    cleaned = clean_fragment(extract_main_content(page, "https://example.org/post"), "https://example.org/post")
+    assert "<strong>In a box</strong><br>Boxed text." in cleaned
+    assert "<strong>Separate break</strong><br>Text after the first heading." in cleaned
+    assert "<strong>Break inside</strong><br>Text after the second heading." in cleaned
+    assert "<strong></strong>" not in cleaned
+
+
+def test_empty_inline_elements_are_dropped():
+    cleaned = clean_fragment('<p><strong>Head</strong><strong></strong>text <a href="/x"><em></em></a>end</p>',
+                             "https://x/")
+    assert cleaned == "<p><strong>Head</strong>text end</p>"
+    assert clean_fragment("<p>a<br>b <span> </span>c</p>", "https://x/") == "<p>a<br>b <span> </span>c</p>"

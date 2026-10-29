@@ -22,6 +22,13 @@ ALLOWED_ATTRIBUTES = {
     "ol": {"start"},
     "*": {"dir", "lang"},
 }
+# Inline elements that mean nothing when empty. An empty one ends up self-closed in the EPUB
+# (<strong/>), and kepubify's HTML parser reads that as an opening tag that is never closed:
+# everything after it turns bold, or into a link.
+EMPTY_DROPPABLE = {
+    "a", "abbr", "b", "cite", "code", "del", "dfn", "em", "i", "ins", "kbd", "mark", "q", "s", "samp",
+    "small", "span", "strong", "sub", "sup", "time", "u", "var",
+}
 EMBED_TAGS = ("iframe", "video", "audio", "embed", "object")
 LAZY_SRC_ATTRIBUTES = ("data-src", "data-lazy-src", "data-original", "data-url")
 
@@ -75,6 +82,13 @@ def _best_srcset(srcset: str) -> str | None:
     return (big_enough[0] if big_enough else max(candidates))[1]
 
 
+def drop_empty_inline(root) -> None:
+    """Unwrap inline elements without text or children, innermost first."""
+    for element in reversed(list(root.iter(*EMPTY_DROPPABLE))):
+        if element is not root and not element.text and not len(element):
+            element.drop_tag()
+
+
 def inner_html(root) -> str:
     """Serialize an element's content without the element itself."""
     parts = [html.escape(root.text)] if root.text else []
@@ -122,7 +136,7 @@ def clean_fragment(fragment: str, base_url: str) -> str:
         if link.get("href"):
             link.set("href", urljoin(base_url, link.get("href")))
 
-    return nh3.clean(
+    cleaned = nh3.clean(
         inner_html(root),
         tags=ALLOWED_TAGS,
         attributes=ALLOWED_ATTRIBUTES,
@@ -130,6 +144,11 @@ def clean_fragment(fragment: str, base_url: str) -> str:
         link_rel=None,
         strip_comments=True,
     )
+    if not cleaned.strip():
+        return cleaned
+    root = lxml_html.fragment_fromstring(cleaned, create_parent="div")
+    drop_empty_inline(root)
+    return inner_html(root)
 
 
 def text_length(fragment: str) -> int:

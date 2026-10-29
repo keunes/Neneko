@@ -166,8 +166,11 @@ def page_language(page_html: str) -> str | None:
 def extract_main_content(page_html: str, url: str) -> str | None:
     """Main article HTML from a full page: trafilatura first, readability as fallback."""
     try:
+        tree = trafilatura.load_html(page_html)
+        if tree is not None:
+            _move_breaks_out_of_formatting(tree)
         extracted = trafilatura.extract(
-            page_html,
+            tree if tree is not None else page_html,
             url=url,
             output_format="html",
             include_images=True,
@@ -203,6 +206,20 @@ def _body_inner_html(document: str) -> str:
 
 INLINE_PARENTS = {"p", "li", "td", "th", "dd", "dt", "a", "strong", "em", "b", "i", "span", "h1", "h2", "h3",
                   "h4", "h5", "h6", "figcaption"}
+FORMATTING = {"strong", "b", "em", "i", "u", "span"}
+
+
+def _move_breaks_out_of_formatting(tree) -> None:
+    """trafilatura drops a <br> at the end of bold or italic text, so a heading written as
+    <strong>Heading<br></strong>Text or <strong>Heading</strong><strong><br></strong>Text
+    runs into the text. Move such a <br> to just after the formatting element."""
+    for br in list(tree.iter("br")):
+        parent = br.getparent()
+        while parent is not None and parent.tag in FORMATTING and br.getnext() is None \
+                and not (br.tail or "").strip():
+            br.tail, parent.tail = parent.tail, None
+            parent.addnext(br)
+            parent = br.getparent()
 
 
 def _restore_inline_code(body) -> None:

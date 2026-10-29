@@ -24,7 +24,7 @@ from .epub import Article, EpubImage, write_epub
 from .extract import Fetcher, choose_content
 from .images import process_image
 from .kepub import kepubify, kepubify_available
-from .sanitize import clean_fragment, drop_leading_title, image_sources, inner_html, text_length
+from .sanitize import clean_fragment, drop_empty_inline, drop_leading_title, image_sources, inner_html, text_length
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ def _rewrite_images(fragment: str, mapping: dict[str, str]) -> str:
             if parent is not None and parent.tag == "figure" and not parent.text_content().strip() \
                     and not len(parent.findall(".//img")):
                 parent.drop_tree()
+    drop_empty_inline(root)  # e.g. the link around a dropped image
     return inner_html(root)
 
 
