@@ -13,6 +13,7 @@ from pathlib import Path
 import httpx
 import trafilatura
 from trafilatura.utils import decode_file
+from lxml import etree
 from lxml import html as lxml_html
 from readability import Document
 
@@ -194,13 +195,18 @@ def extract_main_content(page_html: str, url: str) -> str | None:
 
 
 def _body_inner_html(document: str) -> str:
-    root = lxml_html.document_fromstring(document)
+    # trafilatura serializes its output as XML. Read it as XML too: the HTML parser closes a
+    # <p> at the <pre> of an inline version number, before _restore_inline_code sees it.
+    try:
+        root = etree.fromstring(document)
+    except etree.XMLSyntaxError:
+        root = lxml_html.document_fromstring(document)
     body = root.find("body")
     if body is None:
         return document
     _restore_inline_code(body)
     parts = [html.escape(body.text or "")]
-    parts += [lxml_html.tostring(child, encoding="unicode") for child in body]
+    parts += [etree.tostring(child, encoding="unicode", method="html") for child in body]
     return "".join(parts)
 
 
@@ -226,7 +232,7 @@ def _restore_inline_code(body) -> None:
     """trafilatura turns every <code> into <pre>, also inline ones such as a version number
     in a sentence. Turn those back into <code> so the sentence stays one paragraph."""
     for pre in list(body.iter("pre")):
-        if "\n" in pre.text_content().strip():
+        if "\n" in "".join(pre.itertext()).strip():
             continue  # a real code block
         parent = pre.getparent()
         previous = pre.getprevious()

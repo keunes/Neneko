@@ -118,10 +118,14 @@ def test_inline_code_stays_inline_and_code_blocks_stay_blocks():
     item = ('<li><strong><a href="https://f-droid.org/en/packages/eu.siacs.conversations">Conversations</a></strong>'
             ' since this week with update <code class="language-plaintext highlighter-rouge">2.20.3+free</code></li>')
     block = "<pre><code>apt update\napt install neneko</code></pre>"
+    paragraph = ('<p><strong><a href="https://f-droid.org/en/packages/com.foobnix.pro.pdf.reader">Librera Reader</a>'
+                 '</strong> was updated to <code class="language-plaintext highlighter-rouge">9.6.17-fdroid</code>'
+                 " and we fixed our build recipe.</p>")
     page = (f"<html><body><article><h1>Updates</h1>{filler}<ul>{item}<li>Another app with an update</li></ul>"
-            f"{filler}{block}{filler}</article></body></html>")
+            f"{paragraph}{filler}{block}{filler}</article></body></html>")
     extracted = extract_main_content(page, "https://example.org/post")
     assert "with update <code>2.20.3+free</code></li>" in extracted
+    assert "was updated to <code>9.6.17-fdroid</code> and we fixed our build recipe.</p>" in extracted
     assert "<pre>apt update\napt install neneko</pre>" in extracted
 
 
