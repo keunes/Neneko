@@ -148,3 +148,16 @@ def test_empty_inline_elements_are_dropped():
                              "https://x/")
     assert cleaned == "<p><strong>Head</strong>text end</p>"
     assert clean_fragment("<p>a<br>b <span> </span>c</p>", "https://x/") == "<p>a<br>b <span> </span>c</p>"
+
+
+def test_paragraph_after_an_anchor_target_is_not_a_link():
+    # An anchor target before a paragraph; trafilatura moves the text into it as <a href="">.
+    filler = "<p>" + "Gewone tekst van het artikel met genoeg woorden voor de extractie. " * 8 + "</p>"
+    page = (f"<html><body><article><h1>Titel</h1>{filler}"
+            f"<p><a id='intro'></a>Het is in tien jaar tijd normaal geworden.</p>{filler}</article></body></html>")
+    extracted = extract_main_content(page, "https://example.org/post")
+    assert '<a href="">' in extracted  # what trafilatura gives
+    cleaned = clean_fragment(extracted, "https://example.org/post")
+    assert "<p>Het is in tien jaar tijd normaal geworden.</p>" in cleaned
+    assert clean_fragment('<p><a href="javascript:void(0)">Lees meer</a> <a href="/x">echt</a></p>',
+                          "https://example.org/") == '<p>Lees meer <a href="https://example.org/x">echt</a></p>'

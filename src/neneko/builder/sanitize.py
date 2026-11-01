@@ -147,6 +147,11 @@ def clean_fragment(fragment: str, base_url: str) -> str:
     if not cleaned.strip():
         return cleaned
     root = lxml_html.fragment_fromstring(cleaned, create_parent="div")
+    # A link that goes nowhere (an anchor target such as <a id="intro"></a>, which trafilatura
+    # turns into <a href="">, or a javascript: link nh3 stripped) only looks like a link.
+    for link in list(root.iter("a")):
+        if not (link.get("href") or "").strip():
+            link.drop_tag()
     drop_empty_inline(root)
     return inner_html(root)
 
