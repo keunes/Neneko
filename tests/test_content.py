@@ -143,8 +143,46 @@ def test_bold_heading_with_line_break_keeps_the_break_and_bold_ends():
     assert "<strong></strong>" not in cleaned
 
 
+def test_nested_formatting_keeps_the_space_after_it():
+    filler = "<p>" + "Some text about a musical in a small theatre in town. " * 15 + "</p>"
+    page = ("<html><body><article><h1>Awards</h1>" + filler +
+            "<p><strong>won with the musical</strong> <strong><em>Next to Normal</em></strong> "
+            "<strong>three awards</strong></p>"
+            '<p>read <a href="/x"><em>the review</em></a> <strong>first</strong></p>' + filler +
+            "</article></body></html>")
+    cleaned = clean_fragment(extract_main_content(page, "https://example.org/post"), "https://example.org/post")
+    assert "<i>Next to Normal</i> <strong>three awards</strong>" in cleaned
+    # trafilatura drops the link itself here, with or without the space
+    assert "<i>the review</i> <strong>first</strong>" in cleaned.replace("</a>", "")
+
+
 def test_empty_inline_elements_are_dropped():
     cleaned = clean_fragment('<p><strong>Head</strong><strong></strong>text <a href="/x"><em></em></a>end</p>',
                              "https://x/")
     assert cleaned == "<p><strong>Head</strong>text end</p>"
     assert clean_fragment("<p>a<br>b <span> </span>c</p>", "https://x/") == "<p>a<br>b <span> </span>c</p>"
+
+
+def test_paragraph_after_an_anchor_target_is_not_a_link():
+    # An anchor target before a paragraph; trafilatura moves the text into it as <a href="">.
+    filler = "<p>" + "Gewone tekst van het artikel met genoeg woorden voor de extractie. " * 8 + "</p>"
+    page = (f"<html><body><article><h1>Titel</h1>{filler}"
+            f"<p><a id='intro'></a>Het is in tien jaar tijd normaal geworden.</p>{filler}</article></body></html>")
+    extracted = extract_main_content(page, "https://example.org/post")
+    assert '<a href="">' in extracted  # what trafilatura gives
+    cleaned = clean_fragment(extracted, "https://example.org/post")
+    assert "<p>Het is in tien jaar tijd normaal geworden.</p>" in cleaned
+    assert clean_fragment('<p><a href="javascript:void(0)">Lees meer</a> <a href="/x">echt</a></p>',
+                          "https://example.org/") == '<p>Lees meer <a href="https://example.org/x">echt</a></p>'
+
+
+def test_only_code_blocks_keep_their_line_breaks():
+    # Inline code with a line break in its source ("include <code>\ngtk-...</code>") must not
+    # break the line on the Kobo; whitespace is kept in <pre> blocks only.
+    import re
+
+    from neneko.builder.epub import STYLESHEET
+
+    rules = dict(re.findall(r"^([^{]+)\{([^}]*)\}", STYLESHEET, re.M))
+    keeping = [selector.strip() for selector, body in rules.items() if "white-space: pre" in body]
+    assert keeping == ["pre"]

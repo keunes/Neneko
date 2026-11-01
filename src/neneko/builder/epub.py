@@ -17,7 +17,8 @@ img { max-width: 100%; height: auto; }
 figure { margin: 1em 0; }
 figcaption { font-size: 0.85em; font-style: italic; }
 blockquote { margin: 1em 1.5em; font-style: italic; }
-pre, code { font-family: monospace; font-size: 0.9em; white-space: pre-wrap; }
+pre, code { font-family: monospace; font-size: 0.9em; }
+pre { white-space: pre-wrap; }
 table { border-collapse: collapse; }
 td, th { border: 1px solid #888; padding: 0.2em 0.4em; }
 p.neneko-note { font-size: 0.85em; font-style: italic; }
