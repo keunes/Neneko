@@ -161,3 +161,15 @@ def test_paragraph_after_an_anchor_target_is_not_a_link():
     assert "<p>Het is in tien jaar tijd normaal geworden.</p>" in cleaned
     assert clean_fragment('<p><a href="javascript:void(0)">Lees meer</a> <a href="/x">echt</a></p>',
                           "https://example.org/") == '<p>Lees meer <a href="https://example.org/x">echt</a></p>'
+
+
+def test_only_code_blocks_keep_their_line_breaks():
+    # Inline code with a line break in its source ("include <code>\ngtk-...</code>") must not
+    # break the line on the Kobo; whitespace is kept in <pre> blocks only.
+    import re
+
+    from neneko.builder.epub import STYLESHEET
+
+    rules = dict(re.findall(r"^([^{]+)\{([^}]*)\}", STYLESHEET, re.M))
+    keeping = [selector.strip() for selector, body in rules.items() if "white-space: pre" in body]
+    assert keeping == ["pre"]
