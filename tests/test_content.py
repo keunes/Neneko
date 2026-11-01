@@ -143,6 +143,19 @@ def test_bold_heading_with_line_break_keeps_the_break_and_bold_ends():
     assert "<strong></strong>" not in cleaned
 
 
+def test_nested_formatting_keeps_the_space_after_it():
+    filler = "<p>" + "Some text about a musical in a small theatre in town. " * 15 + "</p>"
+    page = ("<html><body><article><h1>Awards</h1>" + filler +
+            "<p><strong>won with the musical</strong> <strong><em>Next to Normal</em></strong> "
+            "<strong>three awards</strong></p>"
+            '<p>read <a href="/x"><em>the review</em></a> <strong>first</strong></p>' + filler +
+            "</article></body></html>")
+    cleaned = clean_fragment(extract_main_content(page, "https://example.org/post"), "https://example.org/post")
+    assert "<i>Next to Normal</i> <strong>three awards</strong>" in cleaned
+    # trafilatura drops the link itself here, with or without the space
+    assert "<i>the review</i> <strong>first</strong>" in cleaned.replace("</a>", "")
+
+
 def test_empty_inline_elements_are_dropped():
     cleaned = clean_fragment('<p><strong>Head</strong><strong></strong>text <a href="/x"><em></em></a>end</p>',
                              "https://x/")

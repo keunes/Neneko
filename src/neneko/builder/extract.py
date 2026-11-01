@@ -170,6 +170,7 @@ def extract_main_content(page_html: str, url: str) -> str | None:
         tree = trafilatura.load_html(page_html)
         if tree is not None:
             _move_breaks_out_of_formatting(tree)
+            _move_spaces_into_nested_formatting(tree)
         extracted = trafilatura.extract(
             tree if tree is not None else page_html,
             url=url,
@@ -226,6 +227,19 @@ def _move_breaks_out_of_formatting(tree) -> None:
             br.tail, parent.tail = parent.tail, None
             parent.addnext(br)
             parent = br.getparent()
+
+
+def _move_spaces_into_nested_formatting(tree) -> None:
+    """trafilatura drops an inline element that has no text of its own and only a space after
+    it, as in <strong><em>Title</em></strong> <strong>more</strong>: it keeps the <em> but
+    loses the space, so "Title" runs into "more". Move such a space into the element, after
+    its last descendant, where trafilatura keeps it."""
+    for element in tree.iter(*FORMATTING, "a"):
+        if len(element) and not (element.text or "").strip() and element.tail and element.tail.isspace():
+            last = element
+            while len(last):
+                last = last[-1]
+            last.tail, element.tail = (last.tail or "") + element.tail, None
 
 
 def _restore_inline_code(body) -> None:
