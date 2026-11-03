@@ -1,4 +1,7 @@
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import httpx
@@ -111,6 +114,51 @@ def test_refusal_without_title_logs_the_first_text(caplog):
     with caplog.at_level("INFO", logger="neneko.builder.extract"):
         assert Fetcher(transport=httpx.MockTransport(handler)).page("https://busy.example/") is None
     assert "HTTP 429 (retry-after=120, page 'Too many & requests')" in caplog.text
+
+
+def test_rate_limits_are_waited_out(monkeypatch, caplog):
+    slept = []
+    monkeypatch.setattr("neneko.builder.extract.time.sleep", slept.append)
+    answers = {"https://wp.example/a": [httpx.Response(429), httpx.Response(429, headers={"Retry-After": "7"}),
+                                        httpx.Response(200, html="<p>Article</p>")],
+               "https://wp.example/b": [httpx.Response(429)] * 3}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return answers[str(request.url)].pop(0)
+
+    fetcher = Fetcher(transport=httpx.MockTransport(handler), rate_limit_waits=(5.0, 20.0))
+    with caplog.at_level("INFO", logger="neneko.builder.extract"):
+        assert fetcher.page("https://wp.example/a") == ("<p>Article</p>", "https://wp.example/a")
+        assert slept == [5.0, 7.0]
+        assert "refuses" not in caplog.text
+        assert fetcher.page("https://wp.example/b") is None  # three 429s: given up
+    assert slept == [5.0, 7.0, 5.0, 20.0] and not answers["https://wp.example/b"]
+    assert "wp.example refuses automated requests" in caplog.text
+
+
+def test_one_request_at_a_time_per_host():
+    running, most = {}, {}
+    lock = threading.Lock()
+    both_hosts = threading.Barrier(2, timeout=5)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        host = request.url.host
+        with lock:
+            running[host] = running.get(host, 0) + 1
+            most[host] = max(most.get(host, 0), running[host])
+        if request.url.path == "/meet":
+            both_hosts.wait()  # times out if the other host's request can't run alongside
+        else:
+            time.sleep(0.02)
+        with lock:
+            running[host] -= 1
+        return httpx.Response(200, html="<p>ok</p>")
+
+    fetcher = Fetcher(transport=httpx.MockTransport(handler))
+    urls = [f"https://one.example/{n}" for n in range(6)] + ["https://one.example/meet", "https://two.example/meet"]
+    with ThreadPoolExecutor(4) as pool:
+        results = list(pool.map(fetcher.page, urls))
+    assert all(results) and most == {"one.example": 1, "two.example": 1}
 
 
 def test_inline_code_stays_inline_and_code_blocks_stay_blocks():
