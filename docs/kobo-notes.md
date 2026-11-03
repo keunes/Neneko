@@ -213,7 +213,10 @@ unread again to the top.) This only affects books new to the Kobo: `updateVolume
   See the README, "Fewer refreshes during a Sync".
 - Collections are sent once per Sync, on its last page.
 - Articles the Kobo lists but never downloaded aren't offered again, and articles that come back
-  after a removal aren't downloaded by themselves (see above); both download when tapped.
+  after a removal aren't downloaded by themselves (see above); both download when tapped. The
+  same goes for articles reset to not downloaded over USB with `tools/kobo/redownload.py`
+  (`IsDownloaded` = `false`, chapter rows and file removed): a tap downloads the current build,
+  a Sync doesn't (seen on the device, 2026-11-03).
 
 ### Still open
 

@@ -39,3 +39,41 @@ sides:
 
 The script needs only Python 3. Run it while the Kobo is in USB mode (it doesn't use its database
 then); to undo, copy the backup back to `.kobo/KoboReader.sqlite` the same way.
+
+# Downloading an article again
+
+The Kobo never downloads a book again once it lists it as downloaded, whatever Neneko sends
+(see [`docs/kobo-notes.md`](../../docs/kobo-notes.md)). So when an article was built badly, for
+example from the feed text because the site rate-limited Neneko, a rebuild doesn't reach the
+Kobo by itself. `redownload.py` puts chosen articles back in the state of an article that was
+never downloaded, keeping them in the library and their collections, with their reading progress.
+
+1. On the server, delete the old builds from the cache, by Nextcloud News item ID (the numbers
+   in "built item 30654" log lines):
+
+   ```sh
+   docker compose exec neneko sh -c 'cd /data/cache/articles && rm -v 30654-* 30642-*'
+   ```
+
+2. Connect the Kobo over USB and check what would change. Nothing is changed yet:
+
+   ```sh
+   python3 tools/kobo/redownload.py /media/$USER/KOBOeReader 30654 30642
+   ```
+
+   Kobo book IDs (`f1a68315-…`) work as well as item IDs. Articles that aren't downloaded are
+   only reported: tapping them already downloads the current build.
+
+3. Reset them. The script first copies `KoboReader.sqlite` into the current folder, then
+   deletes the book files, their chapter rows and cover records, and marks them not downloaded:
+
+   ```sh
+   python3 tools/kobo/redownload.py /media/$USER/KOBOeReader 30654 30642 --apply
+   ```
+
+4. Eject the Kobo and tap each article; Neneko builds it again and the Kobo downloads it. A
+   Sync doesn't download them, as with any article the Kobo lists but hasn't downloaded.
+
+Seen on the device (firmware 4.38): the reset articles show as not downloaded and download when
+tapped, not at a Sync. To undo, copy the backup back to `.kobo/KoboReader.sqlite` while the Kobo
+is in USB mode.
