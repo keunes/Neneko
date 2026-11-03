@@ -71,8 +71,9 @@ never downloaded, keeping them in the library and their collections, with their 
    python3 tools/kobo/redownload.py /media/$USER/KOBOeReader 30654 30642 --apply
    ```
 
-4. Eject the Kobo and tap each article; Neneko builds it again and the Kobo downloads it.
+4. Eject the Kobo and tap each article; Neneko builds it again and the Kobo downloads it. A
+   Sync doesn't download them, as with any article the Kobo lists but hasn't downloaded.
 
-The database changes match what a never-downloaded article looks like on firmware 4.38; that a
-tap then downloads the new build hasn't been seen on the device yet. To undo, copy the backup
-back to `.kobo/KoboReader.sqlite` while the Kobo is in USB mode.
+Seen on the device (firmware 4.38): the reset articles show as not downloaded and download when
+tapped, not at a Sync. To undo, copy the backup back to `.kobo/KoboReader.sqlite` while the Kobo
+is in USB mode.

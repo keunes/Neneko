@@ -8,8 +8,8 @@ The Kobo never downloads a book again that it lists as downloaded, whatever the 
 articles back in the state of one that was never downloaded: the book file goes, its chapter
 rows and cover record go, and IsDownloaded becomes 'false'. The book's own row stays, so the
 article stays in the library and its collections, with its reading progress. Tapping it then
-downloads the current build from Neneko. Delete the old build from Neneko's cache first,
-otherwise the Kobo gets the same file again.
+downloads the current build from Neneko; a Sync doesn't (seen on the device). Delete the old
+build from Neneko's cache first, otherwise the Kobo gets the same file again.
 
 Articles are given by their Nextcloud News item ID (as in Neneko's log, "built item 30654") or
 by their Kobo book ID. Before --apply it copies the database to the current folder. Needs only
