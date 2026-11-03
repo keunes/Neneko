@@ -242,7 +242,10 @@ are removed.
   "refuses automated requests" (HTTP 403) means the site blocks anything that isn't a real
   browser; cookies (`NENEKO_COOKIES_FILE`) sometimes help. The line says what answered: the
   `server`, `cf-mitigated=challenge` when Cloudflare wanted to run JavaScript, `retry-after` for
-  a rate limit (HTTP 429), and the title of the refusal page.
+  a rate limit (HTTP 429), and the title of the refusal page. Neneko fetches from one site one
+  request at a time, and after a 429 it waits and tries twice more (logged as "trying again")
+  before it settles for the feed text. An article built from the feed text stays that way until
+  its cached file is deleted or it is removed from the Kobo.
 - **Switching from calibre-web**: books that calibre-web synced stay on the Kobo; remove
   them there if you no longer want them.
 - `NENEKO_LOG_LEVEL=DEBUG` logs every step. The Kobo token is masked in the logs.

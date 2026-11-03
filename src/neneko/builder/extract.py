@@ -32,6 +32,11 @@ REFUSAL_LOG_INTERVAL = 600  # seconds between "site refuses" lines per host
 # plain block or a rate limit, and which bot protection answered.
 REFUSAL_HEADERS = ("server", "cf-mitigated", "retry-after")
 REFUSAL_PEEK_BYTES = 8192
+# WordPress.com answers HTTP 429 when the build workers fetch several of a site's articles at
+# once. So requests to one host go one at a time, and a 429 is tried again after these pauses
+# (seconds), or after the server's Retry-After if that is at most MAX_RETRY_AFTER.
+RATE_LIMIT_WAITS = (5.0, 20.0)
+MAX_RETRY_AFTER = 60
 MAX_PAGE_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 # An extraction that recovers less than this share of the feed's own text is
@@ -43,7 +48,8 @@ class Fetcher:
     """Blocking HTTP client used by the build workers."""
 
     def __init__(self, cookies_file: Path | None = None, *, user_agent: str = "",
-                 transport: httpx.BaseTransport | None = None):
+                 transport: httpx.BaseTransport | None = None,
+                 rate_limit_waits: tuple[float, ...] = RATE_LIMIT_WAITS):
         cookies = None
         if cookies_file:
             jar = http.cookiejar.MozillaCookieJar(str(cookies_file))
@@ -58,9 +64,17 @@ class Fetcher:
         )
         self._refusals: dict[str, float] = {}
         self._refusals_lock = threading.Lock()
+        self._rate_limit_waits = rate_limit_waits
+        self._hosts: dict[str, threading.Lock] = {}
+        self._hosts_lock = threading.Lock()
 
     def close(self) -> None:
         self._client.close()
+
+    def _host_lock(self, url: str) -> threading.Lock:
+        host = httpx.URL(url).host
+        with self._hosts_lock:
+            return self._hosts.setdefault(host, threading.Lock())
 
     def _log_refusal(self, url: str, response: httpx.Response) -> None:
         """One line per site every few minutes, not one per image."""
@@ -81,7 +95,30 @@ class Fetcher:
     def _get(self, url: str, limit: int, headers: dict[str, str]) -> tuple[bytes, str, str, str | None] | None:
         """Return (body, final url, content type, charset), or None on any failure."""
         try:
+            host_lock = self._host_lock(url)
+        except httpx.InvalidURL as exc:
+            log.info("fetch %s failed: %r", url, exc)
+            return None
+        # Held while waiting out a 429 too, so the other workers wait for that host as well.
+        with host_lock:
+            for default_wait in self._rate_limit_waits:
+                result = self._get_once(url, limit, headers, retry_wait=default_wait)
+                if not isinstance(result, float):
+                    return result
+                log.info("fetch %s: HTTP 429, trying again in %g seconds", url, result)
+                time.sleep(result)
+            return self._get_once(url, limit, headers, retry_wait=None)
+
+    def _get_once(self, url: str, limit: int, headers: dict[str, str],
+                  retry_wait: float | None) -> tuple[bytes, str, str, str | None] | float | None:
+        """One request. Returns the seconds to wait before trying again after a 429, if
+        `retry_wait` (the default pause) is given and the server doesn't ask for longer."""
+        try:
             with self._client.stream("GET", url, headers=headers) as response:
+                if response.status_code == 429 and retry_wait is not None:
+                    wait = _retry_wait(response, retry_wait)
+                    if wait is not None:
+                        return wait
                 if response.status_code in REFUSED:
                     self._log_refusal(url, response)
                     return None
@@ -120,6 +157,15 @@ class Fetcher:
             headers["Referer"] = referer
         result = self._get(url, MAX_IMAGE_BYTES, headers)
         return result[0] if result is not None else None
+
+
+def _retry_wait(response: httpx.Response, default: float) -> float | None:
+    """Seconds to wait before trying a 429 again: the server's Retry-After (in seconds) or
+    `default`. None when the server asks for longer than a build should wait."""
+    retry_after = response.headers.get("retry-after", "").strip()
+    if retry_after.isdigit():
+        return float(retry_after) if int(retry_after) <= MAX_RETRY_AFTER else None
+    return float(default)
 
 
 def _refusal_details(response: httpx.Response) -> str:
