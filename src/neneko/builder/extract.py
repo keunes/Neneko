@@ -171,6 +171,7 @@ def extract_main_content(page_html: str, url: str) -> str | None:
         if tree is not None:
             _move_breaks_out_of_formatting(tree)
             _move_spaces_into_nested_formatting(tree)
+            _captions_as_paragraphs(tree)
         extracted = trafilatura.extract(
             tree if tree is not None else page_html,
             url=url,
@@ -240,6 +241,14 @@ def _move_spaces_into_nested_formatting(tree) -> None:
             while len(last):
                 last = last[-1]
             last.tail, element.tail = (last.tail or "") + element.tail, None
+
+
+def _captions_as_paragraphs(tree) -> None:
+    """trafilatura mangles <figcaption>: plain text disappears, text before formatting is
+    dropped, and each bold piece becomes its own paragraph. As a <p> it comes through whole."""
+    for caption in tree.iter("figcaption"):
+        caption.tag = "p"
+        caption.attrib.clear()
 
 
 def _restore_inline_code(body) -> None:

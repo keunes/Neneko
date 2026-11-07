@@ -186,3 +186,24 @@ def test_only_code_blocks_keep_their_line_breaks():
     rules = dict(re.findall(r"^([^{]+)\{([^}]*)\}", STYLESHEET, re.M))
     keeping = [selector.strip() for selector, body in rules.items() if "white-space: pre" in body]
     assert keeping == ["pre"]
+
+
+def test_image_captions_come_through_as_one_paragraph():
+    # Omroep Delft writes captions as separate bold pieces; trafilatura made each one a
+    # paragraph, dropped plain-text captions and the text before an <em>.
+    filler = "<p>" + "Gewone tekst van het artikel met genoeg woorden voor de extractie. " * 8 + "</p>"
+    captions = [
+        "<strong>Met een hyperloop</strong> <strong>wordt er gereisd</strong> <strong>| Foto: Delft</strong>",
+        "Met een hyperloop wordt er gereisd | Foto: Delft",
+        "Met een <em>hyperloop</em> wordt er gereisd | Foto: Delft",
+    ]
+    expected = [
+        "<p><strong>Met een hyperloop</strong> <strong>wordt er gereisd</strong> <strong>| Foto: Delft</strong></p>",
+        "<p>Met een hyperloop wordt er gereisd | Foto: Delft</p>",
+        "<p>Met een <i>hyperloop</i> wordt er gereisd | Foto: Delft</p>",
+    ]
+    for caption, want in zip(captions, expected, strict=True):
+        page = (f"<html><body><article><h1>Titel</h1>{filler}<figure class='wp-block-image'>"
+                f"<img src='https://example.org/a.png' alt=''><figcaption class='wp-element-caption'>{caption}"
+                f"</figcaption></figure>{filler}</article></body></html>")
+        assert want in extract_main_content(page, "https://example.org/post")
