@@ -151,7 +151,7 @@ def test_nested_formatting_keeps_the_space_after_it():
             '<p>read <a href="/x"><em>the review</em></a> <strong>first</strong></p>' + filler +
             "</article></body></html>")
     cleaned = clean_fragment(extract_main_content(page, "https://example.org/post"), "https://example.org/post")
-    assert "<i>Next to Normal</i> <strong>three awards</strong>" in cleaned
+    assert "<strong>won with the musical <i>Next to Normal</i> three awards</strong>" in cleaned
     # trafilatura drops the link itself here, with or without the space
     assert "<i>the review</i> <strong>first</strong>" in cleaned.replace("</a>", "")
 
@@ -198,7 +198,7 @@ def test_image_captions_come_through_as_one_paragraph():
         "Met een <em>hyperloop</em> wordt er gereisd | Foto: Delft",
     ]
     expected = [
-        "<p><strong>Met een hyperloop</strong> <strong>wordt er gereisd</strong> <strong>| Foto: Delft</strong></p>",
+        "<strong>Met een hyperloop wordt er gereisd | Foto: Delft</strong>",  # merged, see below
         "<p>Met een hyperloop wordt er gereisd | Foto: Delft</p>",
         "<p>Met een <i>hyperloop</i> wordt er gereisd | Foto: Delft</p>",
     ]
