@@ -217,6 +217,8 @@ def extract_main_content(page_html: str, url: str) -> str | None:
         if tree is not None:
             _move_breaks_out_of_formatting(tree)
             _move_spaces_into_nested_formatting(tree)
+            _captions_as_paragraphs(tree)
+            _merge_adjacent_formatting(tree)
         extracted = trafilatura.extract(
             tree if tree is not None else page_html,
             url=url,
@@ -286,6 +288,38 @@ def _move_spaces_into_nested_formatting(tree) -> None:
             while len(last):
                 last = last[-1]
             last.tail, element.tail = (last.tail or "") + element.tail, None
+
+
+def _captions_as_paragraphs(tree) -> None:
+    """trafilatura mangles <figcaption>: plain text disappears, text before formatting is
+    dropped, and each bold piece becomes its own paragraph. As a <p> it comes through whole."""
+    for caption in tree.iter("figcaption"):
+        caption.tag = "p"
+        caption.attrib.clear()
+
+
+def _merge_adjacent_formatting(tree) -> None:
+    """Join bold (or italic) pieces separated only by whitespace into one element:
+    <strong>a</strong> <strong><em>b</em></strong> <strong>c</strong> becomes
+    <strong>a <em>b</em> c</strong>. trafilatura merges such neighbours itself, but loses
+    the space and the outer bold when the middle one has formatting inside ("…musical</strong>
+    <i>Next to Normal</i><strong>drie…")."""
+    for element in list(tree.iter(*(FORMATTING - {"span"}))):
+        if element.getparent() is None:
+            continue  # merged into its left neighbour already
+        while True:
+            neighbour = element.getnext()
+            if neighbour is None or neighbour.tag != element.tag or (element.tail or "").strip() \
+                    or dict(neighbour.attrib) != dict(element.attrib):
+                break
+            joined = (element.tail or "") + (neighbour.text or "")
+            if len(element):
+                element[-1].tail = (element[-1].tail or "") + joined
+            else:
+                element.text = (element.text or "") + joined
+            element.extend(list(neighbour))
+            element.tail = neighbour.tail
+            element.getparent().remove(neighbour)
 
 
 def _restore_inline_code(body) -> None:
